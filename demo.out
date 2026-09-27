@@ -1,0 +1,48 @@
+url        http://localhost:3111/
+http       200
+load       40855ms
+title      "DeepSea Guardian — AI-Powered Ocean Monitoring"
+bodyChars  2384
+patchright C:\Users\Lenovo\.vscode\extensions\danielsanmedium.dscodegpt-3.24.73\standalone/
+text       Skip to content DeepSea Guardian Features Innovation Impact Login Sign Up Launch AI-Powered Ocean Intelligence Protecting the Ocean with Artificial Intelligence Atmospheric CO₂ equivalent reduced: 0 t
+script     {
+ "results": [
+  {
+   "path": "/dashboard",
+   "ok": true,
+   "heading": "Skip to content"
+  },
+  {
+   "path": "/map",
+   "ok": true,
+   "heading": "Skip to content"
+  },
+  {
+   "path": "/species",
+   "ok": true,
+   "heading": "Skip to content"
+  },
+  {
+   "path": "/ai-center",
+   "ok": true,
+   "heading": "Skip to content"
+  }
+ ],
+ "duplicateKeyErrors": 0,
+ "pageErrors": []
+}
+
+console errors/warnings (10):
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+
+requests failed (10):
+  HTTP 404 http://localhost:3111/api/auth/me

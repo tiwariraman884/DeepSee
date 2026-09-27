@@ -20,6 +20,7 @@ import { eventBus, TOPICS, SensorReadingEvent, AnomalyEvent } from "./eventBus";
 import { mlWorker } from "./mlWorker";
 import { sseManager } from "./sseManager";
 import { getDb } from "../db";
+const searoute = require("searoute-js");
 
 let isInitialized = false;
 
@@ -149,17 +150,134 @@ export function initSensorPipeline(): void {
     }
   });
 
-  // ── Subscribe to ml.anomaly for drone dispatch logic ──────────────────────
+  // ── Subscribe to ml.anomaly for drone auto-dispatch logic ─────────────────
   eventBus.subscribe<AnomalyEvent>(TOPICS.ML_ANOMALY, (anomaly) => {
-    // Auto-dispatch nearest drone (simulated)
-    sseManager.broadcast("drone_dispatch", {
-      reason:       "anomaly_detected",
-      targetSensor: anomaly.sensorId,
-      location:     anomaly.sensorName,
-      droneId:      "drone-alpha-1",
-      eta_seconds:  Math.floor(Math.random() * 120 + 60),   // 60-180s ETA
-      timestamp:    anomaly.timestamp,
-    });
+    try {
+      const db = getDb();
+      
+      // 1. Get the sensor's coordinates
+      const sensor = db.prepare("SELECT lat, lng FROM sensors WHERE id = ?").get(anomaly.sensorId) as any;
+      if (!sensor) return;
+
+      // 2. Find an idle drone, fallback to any drone if none are idle
+      let drone = db.prepare("SELECT * FROM drones WHERE status = 'idle' ORDER BY battery DESC LIMIT 1").get() as any;
+      if (!drone) {
+        console.log("[Pipeline] ⚠️ No idle drones available, falling back to any drone for dispatch...");
+        drone = db.prepare("SELECT * FROM drones ORDER BY battery DESC LIMIT 1").get() as any;
+        if (!drone) {
+          console.log("[Pipeline] ❌ No drones exist in the database!");
+          return;
+        }
+      }
+
+      console.log(`[Pipeline] 🚁 Dispatching drone ${drone.name} to sensor ${anomaly.sensorName}`);
+
+      // 3. Mark drone as active/responding (best-effort DB write)
+      try {
+        db.prepare("UPDATE drones SET status = 'active', last_update = ? WHERE id = ?").run(
+          new Date().toISOString(), drone.id
+        );
+      } catch { /* DB busy — SSE will still broadcast */ }
+
+      // 4. Determine coordinates
+      let currentLat = drone.lat;
+      let currentLng = drone.lng;
+      const targetLat = sensor.lat;
+      const targetLng = sensor.lng;
+
+      // Generate maritime route to avoid land
+      const originFeature = {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Point", coordinates: [currentLng, currentLat] }
+      };
+      const destFeature = {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Point", coordinates: [targetLng, targetLat] }
+      };
+      
+      const route = searoute(originFeature, destFeature);
+      // Route returns GeoJSON LineString coordinates: [lng, lat][]
+      const pathCoordinates = route.geometry.coordinates.map((coord: number[]) => ({
+        lng: coord[0],
+        lat: coord[1]
+      }));
+
+      // Broadcast the dispatch event — include target coordinates for map path
+      sseManager.broadcast("drone_dispatch", {
+        reason:       "anomaly_detected",
+        targetSensor: anomaly.sensorId,
+        location:     anomaly.sensorName,
+        droneId:      drone.id,
+        droneName:    drone.name,
+        eta_seconds:  60,
+        timestamp:    anomaly.timestamp,
+        targetLat:    targetLat,
+        targetLng:    targetLng,
+        originLat:    currentLat,
+        originLng:    currentLng,
+        path:         pathCoordinates,
+      });
+
+      // 5. Simulate movement towards the sensor along the maritime route
+      // We will move through the pathCoordinates array over 30 seconds
+      const totalSteps = 15;
+      const pathPoints = pathCoordinates.length;
+      let stepCount = 0;
+
+      const movementInterval = setInterval(() => {
+        stepCount++;
+        
+        // Interpolate progress along the path coordinates
+        const progress = stepCount / totalSteps;
+        const targetIndex = Math.min(Math.floor(progress * (pathPoints - 1)), pathPoints - 1);
+        
+        // For smoother animation, we could interpolate between two points, but for 
+        // simulation jumping to the nearest waypoint is sufficient.
+        currentLat = pathCoordinates[targetIndex].lat;
+        currentLng = pathCoordinates[targetIndex].lng;
+
+        // ALWAYS broadcast SSE first (map updates even if DB is busy)
+        sseManager.broadcast("drone_update", {
+          id: drone.id,
+          name: drone.name,
+          lat: currentLat,
+          lng: currentLng,
+          status: 'active',
+          battery: Math.max(0, drone.battery - stepCount)
+        });
+
+        // Best-effort DB update (skip silently if locked)
+        try {
+          db.prepare("UPDATE drones SET lat = ?, lng = ?, last_update = ? WHERE id = ?").run(
+            currentLat, currentLng, new Date().toISOString(), drone.id
+          );
+        } catch { /* DB temporarily locked — SSE already sent */ }
+
+        if (stepCount >= totalSteps) {
+          clearInterval(movementInterval);
+          // Drone arrived
+          sseManager.broadcast("drone_update", {
+            id: drone.id,
+            name: drone.name,
+            status: 'idle',
+            lat: targetLat,
+            lng: targetLng,
+            battery: Math.max(0, drone.battery - stepCount)
+          });
+          try {
+            db.prepare("UPDATE drones SET status = 'idle', lat = ?, lng = ?, last_update = ? WHERE id = ?").run(
+              targetLat, targetLng, new Date().toISOString(), drone.id
+            );
+          } catch { /* ignore */ }
+          console.log(`[Pipeline] 🚁 Drone ${drone.name} arrived at ${anomaly.sensorName}.`);
+        }
+      }, 2000);
+
+    } catch (err: any) {
+      console.error("[Pipeline] Drone dispatch error:", err.message);
+    }
   });
 
   console.log("[Pipeline] ✅ Sensor pipeline worker ready — subscribed to sensor.reading & ml.anomaly");

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Loader2, Search, CheckCircle2, Sparkles, Upload } from "lucide-react";
+import { Camera, Loader2, Search, CheckCircle2, Sparkles, Upload, AlertTriangle, ArrowRight } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/Card";
+import { statusLabels } from "@/lib/constants";
 
 const SAMPLE_PRESETS = [
   { name: "Hawksbill Turtle", file: "/species/hawksbill-turtle.webp" },
@@ -12,10 +14,32 @@ const SAMPLE_PRESETS = [
   { name: "Hammerhead Shark", file: "/species/hammerhead-shark.webp" },
 ];
 
+type SpeciesMatch = {
+  id: string;
+  name: string;
+  scientificName: string;
+  status: string;
+  habitat: string;
+  region: string;
+  image?: string;
+};
+
+type ClassifyResult = {
+  species: string;
+  confidence: number;
+  /** Raw Kaggle dataset class name, e.g. "Turtle_Tortoise" */
+  label?: string;
+  /** Friendly form of the label, e.g. "Turtle / Tortoise" */
+  displayName?: string;
+  /** False when the model's class has no counterpart in the app taxonomy */
+  covered?: boolean;
+  matches?: SpeciesMatch[];
+};
+
 export function SpeciesClassifier() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ species: string; confidence: number } | null>(null);
+  const [result, setResult] = useState<ClassifyResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,7 +85,7 @@ export function SpeciesClassifier() {
       });
       const data = await res.json();
       if (data.status === "success") {
-        setResult({ species: data.species, confidence: data.confidence });
+        setResult(data as ClassifyResult);
       }
     } catch (e) {
       console.error(e);
@@ -139,23 +163,94 @@ export function SpeciesClassifier() {
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-4 flex items-center justify-between shadow-lg"
+              className="rounded-xl border border-emerald-500/40 bg-emerald-950/40 p-4 shadow-lg"
             >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
-                  <CheckCircle2 className="w-6 h-6" />
+              {/* Headline: raw label + confidence */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                      {result.covered === false ? "Closest Training Class" : "Identified Marine Species"}
+                    </div>
+                    <div className="text-lg font-bold text-white">
+                      {result.displayName || result.species}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Identified Marine Species</div>
-                  <div className="text-lg font-bold text-white">{result.species}</div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase text-ocean-200/60">AI Confidence</div>
+                  <div className="text-2xl font-black font-mono text-emerald-400">
+                    {(result.confidence * 100).toFixed(1)}%
+                  </div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-[10px] text-ocean-200/60 uppercase">AI Confidence</div>
-                <div className="text-2xl font-black font-mono text-emerald-400">
-                  {(result.confidence * 100).toFixed(1)}%
+
+              {/* Raw dataset label — transparency about what the model really output */}
+              {result.label && (
+                <p className="mt-3 border-t border-emerald-500/20 pt-2 text-[10px] text-ocean-200/50">
+                  Dataset class: <span className="font-mono text-ocean-200/80">{result.label}</span>
+                </p>
+              )}
+
+              {/* Mapped app species */}
+              {result.matches && result.matches.length > 0 && (
+                <div className="mt-3 border-t border-emerald-500/20 pt-3">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-300/80">
+                    Matches in monitored species
+                  </p>
+                  <div className="space-y-2">
+                    {result.matches.map((m) => (
+                      <Link
+                        key={m.id}
+                        href="/species"
+                        className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-2 transition hover:border-emerald-500/40 hover:bg-emerald-500/10"
+                      >
+                        {m.image && (
+                          <img
+                            src={m.image}
+                            alt={m.name}
+                            className="h-10 w-16 shrink-0 rounded object-cover"
+                          />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-white">{m.name}</p>
+                          <p className="truncate text-[11px] italic text-ocean-200/60">
+                            {m.scientificName}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-[10px] text-ocean-200/60">{m.region}</p>
+                          <p className="text-[10px] font-medium text-emerald-300/80">
+                            {statusLabels[m.status as keyof typeof statusLabels] ?? m.status}
+                          </p>
+                        </div>
+                        <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ocean-200/40" />
+                      </Link>
+                    ))}
+                  </div>
+                  {result.matches.length > 1 && (
+                    <p className="mt-2 text-[10px] leading-snug text-ocean-200/50">
+                      The dataset groups these together, so the model cannot separate them —
+                      all are plausible matches.
+                    </p>
+                  )}
                 </div>
-              </div>
+              )}
+
+              {/* Honest coverage gap — never pretend an unmapped class is a match */}
+              {result.covered === false && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden="true" />
+                  <p className="text-[11px] leading-snug text-amber-200/90">
+                    This class exists in the training dataset but not in the monitored species
+                    list, so no species profile can be shown. Treat this as a category-level
+                    detection only.
+                  </p>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

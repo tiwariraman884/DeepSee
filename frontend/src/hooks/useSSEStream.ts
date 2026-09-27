@@ -51,8 +51,22 @@ export interface DroneDispatchEvent {
   targetSensor: string;
   location: string;
   droneId: string;
+  droneName?: string;
   eta_seconds: number;
   timestamp: string;
+  targetLat?: number;
+  targetLng?: number;
+  originLat?: number;
+  originLng?: number;
+}
+
+export interface DroneUpdateEvent {
+  id: string;
+  name?: string;
+  lat: number;
+  lng: number;
+  status: string;
+  battery?: number;
 }
 
 export interface SSEStatus {
@@ -66,6 +80,12 @@ export interface SSEStatus {
 
 export function useSSEStream() {
   const addAlert = useAppStore((s) => s.addAlert);
+  const setDroneDispatchGlobal = useAppStore((s) => s.setDroneDispatch);
+  const updateDronePosition = useAppStore((s) => s.updateDronePosition);
+  // Read from global store so state persists across page navigation
+  const droneDispatch = useAppStore((s) => s.droneDispatch);
+  const dronePositions = useAppStore((s) => s.dronePositions);
+
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [status, setStatus] = useState<SSEStatus>({
@@ -80,7 +100,6 @@ export function useSSEStream() {
   // Live sensor readings state (latest N readings for sparklines)
   const [liveReadings, setLiveReadings] = useState<SensorUpdateEvent[]>([]);
   const [latestAnomaly, setLatestAnomaly] = useState<AnomalyAlertEvent | null>(null);
-  const [droneDispatch, setDroneDispatch] = useState<DroneDispatchEvent | null>(null);
 
   const connect = useCallback(() => {
     // Close existing connection
@@ -144,10 +163,21 @@ export function useSSEStream() {
     // ── drone_dispatch ────────────────────────────────────────────────────
     es.addEventListener("drone_dispatch", (e) => {
       const data: DroneDispatchEvent = JSON.parse(e.data);
-      setDroneDispatch(data);
+      setDroneDispatchGlobal(data);  // persists in global store across pages
       setStatus(prev => ({
         ...prev,
         lastEvent: "drone_dispatch",
+        lastEventAt: new Date(),
+      }));
+    });
+
+    // ── drone_update (live position from auto-dispatch) ───────────────────
+    es.addEventListener("drone_update", (e) => {
+      const data: DroneUpdateEvent = JSON.parse(e.data);
+      updateDronePosition(data);  // persists in global store across pages
+      setStatus(prev => ({
+        ...prev,
+        lastEvent: "drone_update",
         lastEventAt: new Date(),
       }));
     });
@@ -178,7 +208,7 @@ export function useSSEStream() {
         connect();
       }, 3000);
     };
-  }, [addAlert]);
+  }, [addAlert, setDroneDispatchGlobal, updateDronePosition]);
 
   useEffect(() => {
     connect();
@@ -191,5 +221,5 @@ export function useSSEStream() {
     };
   }, [connect]);
 
-  return { status, liveReadings, latestAnomaly, droneDispatch };
+  return { status, liveReadings, latestAnomaly, droneDispatch, dronePositions };
 }

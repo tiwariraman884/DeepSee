@@ -60,7 +60,7 @@ app.listen(PORT, async () => {
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
   // Step 1: Start ML Worker (loads model into RAM)
-  console.log("[Boot] Step 1/2 — Starting ML Inference Worker...");
+  console.log("[Boot] Step 1/3 — Starting ML Inference Worker...");
   const { mlWorker } = await import("./lib/mlWorker");
   try {
     await mlWorker.start();
@@ -70,8 +70,20 @@ app.listen(PORT, async () => {
     console.warn("[Boot]     Predictions will fall back to spawning Python per-request");
   }
 
-  // Step 2: Initialize Sensor Data Pipeline (EventBus workers)
-  console.log("[Boot] Step 2/2 — Initializing Sensor Data Pipeline...");
+  // Step 2: Warm the species classifier so the first user request is fast.
+  // Loading torch + the checkpoint takes ~40s cold; doing it at boot keeps the
+  // request path well inside the frontend proxy timeout.
+  console.log("[Boot] Step 2/3 — Warming species classifier...");
+  const { speciesWorker } = await import("./lib/speciesWorker");
+  try {
+    await speciesWorker.start();
+  } catch (err: any) {
+    console.warn("[Boot] ⚠️  Species classifier failed to start:", err.message);
+    console.warn("[Boot]     /api/species/classify will fall back to one-shot Python");
+  }
+
+  // Step 3: Initialize Sensor Data Pipeline (EventBus workers)
+  console.log("[Boot] Step 3/3 — Initializing Sensor Data Pipeline...");
   const { initSensorPipeline } = await import("./lib/sensorPipeline");
   initSensorPipeline();
   console.log("[Boot] ✅ Sensor pipeline active — EventBus → ML → SQLite WAL → SSE");

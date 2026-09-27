@@ -2,6 +2,30 @@ import { create } from "zustand";
 import type { TimeHorizon, PollutionEvent, Species, Sensor, Alert } from "@/types";
 import { computeOceanHealth } from "@/data/metrics";
 
+export interface DroneDispatchInfo {
+  reason: string;
+  targetSensor: string;
+  location: string;
+  droneId: string;
+  droneName?: string;
+  eta_seconds: number;
+  timestamp: string;
+  targetLat?: number;
+  targetLng?: number;
+  originLat?: number;
+  originLng?: number;
+  path?: { lat: number; lng: number }[];
+}
+
+export interface DronePositionInfo {
+  id: string;
+  name?: string;
+  lat: number;
+  lng: number;
+  status: string;
+  battery?: number;
+}
+
 export interface HorizonProjection {
   oceanHealth: number;
   pollutionHotspots: number;
@@ -31,11 +55,16 @@ interface AppState {
   _sensors: Sensor[];
   _alerts: Alert[];
   _loaded: boolean;
+  // Global drone tracking — persists across page navigation
+  droneDispatch: DroneDispatchInfo | null;
+  dronePositions: Record<string, DronePositionInfo>;
   setRegion: (region: string | null) => void;
   setTimeHorizon: (h: TimeHorizon) => void;
   setDateRange: (range: string) => void;
   fetchSummary: () => Promise<void>;
   addAlert: (alert: Alert) => void;
+  setDroneDispatch: (d: DroneDispatchInfo | null) => void;
+  updateDronePosition: (d: DronePositionInfo) => void;
   getSummary: () => {
     oceanHealth: number;
     pollutionHotspots: number;
@@ -100,11 +129,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   _sensors: [],
   _alerts: [],
   _loaded: false,
+  droneDispatch: null,
+  dronePositions: {},
 
   setRegion: (region) => set({ selectedRegion: region }),
   setTimeHorizon: (h) => set({ timeHorizon: h }),
   setDateRange: (range) => set({ dateRange: range }),
-  addAlert: (alert) => set((state) => ({ _alerts: [alert, ...state._alerts] })),
+  addAlert: (alert) =>
+    set((state) => {
+      // SSE reconnects replay events that are already in the list, and the same
+      // alert can arrive from both the SSE stream and a REST refresh. Prepending
+      // blindly produced duplicate React keys, so replace-if-present instead.
+      const existing = state._alerts.findIndex((a) => a.id === alert.id);
+      if (existing !== -1) {
+        const next = state._alerts.slice();
+        next[existing] = alert;
+        return { _alerts: next };
+      }
+      return { _alerts: [alert, ...state._alerts] };
+    }),
+  setDroneDispatch: (d) => set({ droneDispatch: d }),
+  updateDronePosition: (d) => set((state) => ({ dronePositions: { ...state.dronePositions, [d.id]: d } })),
 
   fetchSummary: async () => {
     if (get()._loaded) return;
@@ -113,7 +158,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         fetch("/api/pollution"),
         fetch("/api/species"),
         fetch("/api/sensors"),
-        fetch("/api/alerts"),
+        // Explicit small page — the dashboard renders every alert it receives,
+        // so pulling the unbounded list produced 200+ cards on first paint.
+        fetch("/api/alerts?limit=25"),
         fetch("/api/drones"),
       ]);
 

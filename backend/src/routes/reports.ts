@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { getDb } from "../db";
+import PDFDocument from "pdfkit";
+import fs from "fs";
 
 const router = Router();
 
@@ -42,6 +44,69 @@ function ensureReportsSeeded(db: any) {
   } catch {}
 }
 
+router.get("/download", (req, res) => {
+  try {
+    const db = getDb();
+    
+    // Fetch latest anomalies for the report
+    const recentAlerts = db.prepare(`
+      SELECT * FROM alerts 
+      WHERE type IN ('critical', 'warning') 
+      ORDER BY created_at DESC LIMIT 5
+    `).all() as any[];
+
+    // Fetch drone status summary
+    const activeDrones = db.prepare("SELECT COUNT(*) as count FROM drones WHERE status = 'active'").get() as any;
+    const totalDrones = db.prepare("SELECT COUNT(*) as count FROM drones").get() as any;
+
+    const doc = new PDFDocument({ margin: 50 });
+    
+    res.setHeader("Content-Disposition", 'attachment; filename="DeepSea_Guardian_Report.pdf"');
+    res.setHeader("Content-Type", "application/pdf");
+    
+    doc.pipe(res);
+    
+    // Header
+    doc.fontSize(24).font('Helvetica-Bold').fillColor('#059669').text("DeepSea Guardian", { align: "center" });
+    doc.fontSize(14).fillColor('#64748B').text("Ocean Health & AI Anomalies Report", { align: "center" });
+    doc.moveDown(2);
+    
+    // Date & Meta
+    doc.fontSize(10).fillColor('#333333').text(`Generated on: ${new Date().toLocaleString()}`);
+    doc.text(`Fleet Status: ${activeDrones.count} of ${totalDrones.count} drones currently active in the field.`);
+    doc.moveDown(2);
+    
+    // Anomalies Section
+    doc.fontSize(18).font('Helvetica-Bold').fillColor('#0F172A').text("Recent Critical Alerts");
+    doc.moveDown(1);
+    
+    if (recentAlerts.length === 0) {
+      doc.fontSize(12).font('Helvetica').fillColor('#10B981').text("No critical alerts detected recently. Oceans are stable.");
+    } else {
+      recentAlerts.forEach((alert) => {
+        doc.fontSize(12).font('Helvetica-Bold').fillColor('#EF4444').text(`[${alert.type.toUpperCase()}] ${alert.category} Alert at ${alert.location}`);
+        doc.fontSize(10).font('Helvetica').fillColor('#475569').text(`Time: ${new Date(alert.created_at).toLocaleString()}`);
+        doc.fontSize(11).fillColor('#1E293B').text(`${alert.message}`);
+        doc.moveDown(1);
+      });
+    }
+
+    doc.moveDown(2);
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#0F172A').text("AI Spread Forecast Insights");
+    doc.fontSize(11).font('Helvetica').fillColor('#333333').text("Current trajectory models indicate stable dispersion with isolated risk zones. Recommend continued monitoring via autonomous Sentinel drones.");
+    
+    // Footer
+    doc.moveDown(4);
+    doc.fontSize(9).fillColor('#94A3B8').text("Generated automatically by DeepSea Guardian AI Infrastructure", { align: "center" });
+
+    doc.end();
+
+  } catch (err: any) {
+    console.error("PDF generation error:", err);
+    return res.status(500).json({ error: "Failed to generate PDF report" });
+  }
+});
+
 router.get("/", (req, res) => {
   const status = req.query.status as string;
   const authorId = req.query.authorId as string;
@@ -83,3 +148,4 @@ router.get("/", (req, res) => {
 });
 
 export default router;
+

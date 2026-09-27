@@ -6,16 +6,25 @@ import { Brain, Loader2, AlertTriangle, CheckCircle2, RotateCcw, Radio, Send } f
 import { Card, CardHeader } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
 
-// Default "normal" water values pre-filled
-const NORMAL_PRESET = { temperature: 3.1, ph: 8.05, salinity: 34.5, oxygen: 5.2, turbidity: 0.4 };
+// Default "normal" water values pre-filled.
+//
+// IMPORTANT — temperature must stay in the deep-sea training domain (~2–4 °C).
+// The Isolation Forest was trained on deep-sea sensor data centred on ~3.2 °C, and
+// temperature dominates the decision function. A "clean ocean" preset fed at
+// 22.5 °C is classified as an ANOMALY, so the flagship demo button tripped a false
+// positive. Verified empirically: 3.1 °C → isAnomaly:false, 22.5 °C → isAnomaly:true.
+const DEEP_SEA_TEMP = 3.1;
+const NORMAL_PRESET = { temperature: DEEP_SEA_TEMP, ph: 8.05, salinity: 34.5, oxygen: 5.2, turbidity: 0.4 };
 // Chemical spill scenario (acidic pH, low oxygen, high turbidity)
-const SPILL_PRESET = { temperature: 3.1, ph: 6.5, salinity: 34.5, oxygen: 2.1, turbidity: 12.0 };
+const SPILL_PRESET = { temperature: DEEP_SEA_TEMP, ph: 6.5, salinity: 34.5, oxygen: 2.1, turbidity: 12.0 };
 
 type SensorInput = typeof NORMAL_PRESET;
 type Result = { isAnomaly: boolean; status: string } | null;
 
+// Slider bounds are clamped to the model's deep-sea domain so a user cannot
+// accidentally drag temperature into tropical ranges and get a spurious anomaly.
 const FIELDS: { key: keyof SensorInput; label: string; unit: string; min: number; max: number; step: number }[] = [
-  { key: "temperature", label: "Temperature", unit: "°C", min: 0, max: 30, step: 0.1 },
+  { key: "temperature", label: "Temperature", unit: "°C", min: 0, max: 10, step: 0.1 },
   { key: "ph",          label: "pH Level",    unit: "pH", min: 0, max: 14, step: 0.01 },
   { key: "salinity",    label: "Salinity",    unit: "PSU", min: 30, max: 40, step: 0.1 },
   { key: "oxygen",      label: "Oxygen",      unit: "mg/L", min: 0, max: 15, step: 0.1 },

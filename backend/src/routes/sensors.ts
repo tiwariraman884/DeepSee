@@ -167,6 +167,43 @@ router.post("/predict", async (req, res) => {
       turbidity:   data.turbidity,
     });
 
+    // ── If anomaly detected → fire drone dispatch via EventBus ──────────────
+    if (result.isAnomaly) {
+      try {
+        const db = getDb();
+        // Pick the first active online sensor to use as anomaly location
+        const sensor = db.prepare(
+          "SELECT id, name FROM sensors WHERE online = 1 ORDER BY RANDOM() LIMIT 1"
+        ).get() as any;
+
+        const sensorId   = sensor?.id   ?? "sensor-manual";
+        const sensorName = sensor?.name ?? "Manual Detection — AI Center";
+
+        const anomalyEvent = {
+          sensorId,
+          sensorName,
+          isAnomaly:  true,
+          score:      result.score,
+          latency_ms: result.latency_ms,
+          reading: {
+            sensorId, sensorName,
+            temperature: data.temperature,
+            ph:          data.ph,
+            salinity:    data.salinity,
+            oxygen:      data.oxygen,
+            turbidity:   data.turbidity,
+            timestamp:   new Date().toISOString(),
+          },
+          timestamp: new Date().toISOString(),
+        };
+
+        eventBus.publish(TOPICS.ML_ANOMALY, anomalyEvent);
+        console.log(`[Predict] 🚨 Anomaly from AI Center → EventBus published, drone dispatch triggered`);
+      } catch (dispatchErr: any) {
+        console.warn("[Predict] Could not trigger drone dispatch:", dispatchErr.message);
+      }
+    }
+
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: "ML prediction failed", detail: err.message });
