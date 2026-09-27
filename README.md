@@ -81,25 +81,25 @@ Oceans cover more than 70% of Earth's surface, yet over 80% of deep-sea environm
 ```mermaid
 graph TD
     subgraph Client ["Frontend (Next.js 15 + React 19)"]
-        UI[Mission Control Dashboard]
-        Map[Interactive Leaflet Ocean Map]
-        Detector[AI Anomaly Detector Component]
-        Forecaster[Pollution Spread Forecast]
-        Classifier[AI Species Identifier]
-        Store[Zustand State Store]
+        UI["Mission Control Dashboard"]
+        Map["Interactive Leaflet Ocean Map"]
+        Detector["AI Anomaly Detector"]
+        Forecaster["Pollution Spread Forecast"]
+        Classifier["AI Species Identifier"]
+        Store["Zustand State Store"]
     end
 
     subgraph API ["Backend (Express & TypeScript)"]
-        SensorsRoute[/api/sensors/predict]
-        PollutionRoute[/api/pollution/forecast]
-        SpeciesRoute[/api/species/classify]
-        DB[(SQLite / In-Memory Telemetry)]
+        SensorsRoute["POST /api/sensors/predict"]
+        PollutionRoute["POST /api/pollution/forecast"]
+        SpeciesRoute["POST /api/species/classify"]
+        DB[("SQLite Database / Telemetry")]
     end
 
     subgraph ML ["Python ML Intelligence Engine"]
-        IFModel[Isolation Forest - predict.py]
-        SpreadModel[Spread Regressor - forecast_spread.py]
-        CVModel[Species Classifier - classify_species.py]
+        IFModel["Isolation Forest (predict.py)"]
+        SpreadModel["Spread Regressor (forecast_spread.py)"]
+        CVModel["Species Classifier (classify_species.py)"]
     end
 
     UI --> Store
