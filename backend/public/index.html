@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSea Guardian — Backend Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg-base:    #020817;
+            --bg-card:    #0f1a2e;
+            --bg-muted:   #1e293b;
+            --border:     rgba(255,255,255,0.08);
+            --text:       #e2e8f0;
+            --muted:      #64748b;
+            --accent:     #38bdf8;
+            --accent-dim: rgba(56,189,248,0.12);
+            --green:      #10b981;
+            --yellow:     #f59e0b;
+            --red:        #ef4444;
+            --purple:     #a78bfa;
+        }
+
+        body {
+            background: var(--bg-base);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── SIDEBAR ──────────────────────────── */
+        .layout { display: flex; min-height: 100vh; }
+
+        .sidebar {
+            width: 240px;
+            flex-shrink: 0;
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem 1rem;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+            padding: 0.5rem;
+        }
+
+        .brand-icon {
+            width: 38px; height: 38px;
+            background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 20px rgba(14,165,233,0.35);
+            flex-shrink: 0;
+        }
+
+        .brand-icon svg { width: 20px; height: 20px; color: #fff; }
+        .brand-text { font-size: 0.95rem; font-weight: 700; color: var(--text); line-height: 1.2; }
+        .brand-sub  { font-size: 0.7rem; color: var(--muted); font-weight: 400; }
+
+        .nav-section-label {
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--muted);
+            padding: 0 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .nav-item {
+            display: flex; align-items: center; gap: 0.6rem;
+            padding: 0.6rem 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--muted);
+            transition: all 0.15s ease;
+            margin-bottom: 2px;
+            border: none; background: none; width: 100%; text-align: left;
+        }
+
+        .nav-item:hover  { background: var(--bg-muted); color: var(--text); }
+        .nav-item.active { background: var(--accent-dim); color: var(--accent); }
+        .nav-item svg    { width: 16px; height: 16px; flex-shrink: 0; }
+
+        .nav-badge {
+            margin-left: auto; background: var(--accent-dim); color: var(--accent);
+            font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.45rem;
+            border-radius: 9999px;
+        }
+
+        .sidebar-footer {
+            margin-top: auto; padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .status-pill {
+            display: flex; align-items: center; gap: 0.5rem;
+            background: rgba(16,185,129,0.1);
+            border: 1px solid rgba(16,185,129,0.2);
+            border-radius: 9999px;
+            padding: 0.4rem 0.85rem;
+            font-size: 0.75rem; font-weight: 600; color: var(--green);
+        }
+
+        .dot {
+            width: 7px; height: 7px;
+            background: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        /* ── MAIN ─────────────────────────────── */
+        .main {
+            margin-left: 240px;
+            flex: 1;
+            padding: 2rem 2.5rem;
+            min-height: 100vh;
+        }
+
+        /* ── TOPBAR ───────────────────────────── */
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 2rem;
+        }
+
+        .page-title    { font-size: 1.5rem; font-weight: 800; color: var(--text); }
+        .page-subtitle { font-size: 0.85rem; color: var(--muted); margin-top: 0.15rem; }
+
+        .topbar-actions { display: flex; align-items: center; gap: 0.75rem; }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.8rem; font-weight: 600;
+            cursor: pointer; border: none;
+            transition: all 0.15s ease;
+            display: flex; align-items: center; gap: 0.4rem;
+        }
+
+        .btn-ghost  { background: var(--bg-muted); color: var(--muted); }
+        .btn-ghost:hover { color: var(--text); }
+        .btn-accent { background: var(--accent); color: #020817; }
+        .btn-accent:hover { opacity: 0.9; }
+
+        .btn svg { width: 14px; height: 14px; }
+
+        /* ── STAT CARDS ───────────────────────── */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1.25rem 1.5rem;
+            position: relative; overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        .stat-card:hover { border-color: rgba(56,189,248,0.25); }
+
+        .stat-card::before {
+            content: ''; position: absolute; inset: 0;
+            background: radial-gradient(circle at 90% 0%, var(--glow,rgba(56,189,248,0.06)), transparent 70%);
+            pointer-events: none;
+        }
+
+        .stat-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+        .stat-value { font-size: 2rem; font-weight: 800; color: var(--text); }
+        .stat-icon  {
+            position: absolute; top: 1.2rem; right: 1.2rem;
+            width: 36px; height: 36px; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .stat-icon svg { width: 18px; height: 18px; }
+
+        /* ── CONTENT PANEL ────────────────────── */
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 1.2rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .panel-title { font-size: 0.95rem; font-weight: 700; }
+        .panel-sub   { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; }
+
+        /* ── TABLE ────────────────────────────── */
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table th {
+            font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em;
+            text-transform: uppercase; color: var(--muted);
+            padding: 0.75rem 1.5rem; text-align: left;
+            border-bottom: 1px solid var(--border);
+            background: rgba(255,255,255,0.02);
+        }
+
+        .data-table td {
+            padding: 0.85rem 1.5rem;
+            font-size: 0.83rem; color: var(--text);
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            vertical-align: middle;
+        }
+
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table tr:hover td { background: rgba(255,255,255,0.025); }
+
+        .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--accent); }
+
+        /* ── BADGES ───────────────────────────── */
+        .badge {
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+        }
+
+        .badge-green  { background: rgba(16,185,129,0.12); color: #10b981; }
+        .badge-yellow { background: rgba(245,158,11,0.12); color: #f59e0b; }
+        .badge-red    { background: rgba(239,68,68,0.12);  color: #ef4444; }
+        .badge-blue   { background: rgba(56,189,248,0.12); color: #38bdf8; }
+        .badge-purple { background: rgba(167,139,250,0.12);color: #a78bfa; }
+        .badge-muted  { background: rgba(100,116,139,0.12);color: #64748b; }
+
+        /* ── LOADING ──────────────────────────── */
+        .loading-row td { text-align: center; color: var(--muted); padding: 3rem !important; }
+
+        .spinner {
+            display: inline-block;
+            width: 24px; height: 24px;
+            border: 3px solid var(--bg-muted);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin-bottom: 0.5rem;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── TABS ─────────────────────────────── */
+        .tab-bar {
+            display: flex; gap: 0.25rem;
+            padding: 1rem 1.5rem 0;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-card);
+            overflow-x: auto;
+        }
+
+        .tab {
+            padding: 0.6rem 1rem;
+            border-radius: 8px 8px 0 0;
+            font-size: 0.8rem; font-weight: 600;
+            cursor: pointer; border: none; background: none;
+            color: var(--muted); white-space: nowrap;
+            border-bottom: 2px solid transparent;
+            transition: all 0.15s;
+        }
+
+        .tab:hover  { color: var(--text); }
+        .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--accent-dim); }
+
+        /* ── EMPTY ────────────────────────────── */
+        .empty-state { text-align: center; padding: 3rem; color: var(--muted); font-size: 0.85rem; }
+
+        /* ── SIDEBAR SECTIONS ─────────────────── */
+        .section { display: none; }
+        .section.active { display: block; }
+
+        /* ── PROGRESS BAR ─────────────────────── */
+        .progress-bar {
+            height: 6px; border-radius: 9999px;
+            background: var(--bg-muted); overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%; border-radius: 9999px;
+            background: linear-gradient(to right, #3b82f6, #38bdf8);
+            transition: width 0.6s ease;
+        }
+
+        @media (max-width: 1000px) {
+            .sidebar { display: none; }
+            .main    { margin-left: 0; padding: 1rem; }
+            .stat-grid { grid-template-columns: repeat(2,1fr); }
+        }
+    </style>
+</head>
+<body>
+<div class="layout">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h5l2-9 4 18 3-9h6"/></svg>
+            </div>
+            <div>
+                <div class="brand-text">DeepSea API</div>
+                <div class="brand-sub">Backend Dashboard</div>
+            </div>
+        </div>
+
+        <div class="nav-section-label" style="margin-bottom:0.75rem">Endpoints</div>
+
+        <button class="nav-item active" onclick="switchSection('overview',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            Overview
+        </button>
+        <button class="nav-item" onclick="switchSection('pollution',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            Pollution
+        </button>
+        <button class="nav-item" onclick="switchSection('drones',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            Drones
+        </button>
+        <button class="nav-item" onclick="switchSection('species',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            Species
+        </button>
+        <button class="nav-item" onclick="switchSection('alerts',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            Alerts
+        </button>
+        <button class="nav-item" onclick="switchSection('sensors',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+            Sensors
+        </button>
+        <button class="nav-item" onclick="switchSection('missions',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+            Missions
+        </button>
+        <button class="nav-item" onclick="switchSection('reports',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Reports
+        </button>
+
+        <div class="nav-section-label" style="margin-top:1.5rem;margin-bottom:0.75rem">System</div>
+
+        <button class="nav-item" onclick="switchSection('analytics',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Analytics
+        </button>
+        <button class="nav-item" onclick="switchSection('health',this)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            API Health
+        </button>
+
+        <div class="sidebar-footer">
+            <div class="status-pill"><div class="dot"></div>Server Online · :5000</div>
+        </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+
+        <!-- OVERVIEW -->
+        <section class="section active" id="sec-overview">
+            <div class="topbar">
+                <div>
+                    <div class="page-title">Overview</div>
+                    <div class="page-subtitle">Live snapshot from all API endpoints</div>
+                </div>
+                <div class="topbar-actions">
+                    <button class="btn btn-ghost" onclick="refreshAll()">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
+            <div class="stat-grid" id="overview-stats">
+                <div class="stat-card" style="--glow:rgba(56,189,248,0.08)">
+                    <div class="stat-label">Pollution Hotspots</div>
+                    <div class="stat-value" id="stat-pollution">—</div>
+                    <div class="stat-icon" style="background:rgba(56,189,248,0.1);color:#38bdf8">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+                    </div>
+                </div>
+                <div class="stat-card" style="--glow:rgba(167,139,250,0.08)">
+                    <div class="stat-label">Active Drones</div>
+                    <div class="stat-value" id="stat-drones">—</div>
+                    <div class="stat-icon" style="background:rgba(167,139,250,0.1);color:#a78bfa">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/></svg>
+                    </div>
+                </div>
+                <div class="stat-card" style="--glow:rgba(16,185,129,0.08)">
+                    <div class="stat-label">Species Tracked</div>
+                    <div class="stat-value" id="stat-species">—</div>
+                    <div class="stat-icon" style="background:rgba(16,185,129,0.1);color:#10b981">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                    </div>
+                </div>
+                <div class="stat-card" style="--glow:rgba(239,68,68,0.08)">
+                    <div class="stat-label">Active Alerts</div>
+                    <div class="stat-value" id="stat-alerts">—</div>
+                    <div class="stat-icon" style="background:rgba(239,68,68,0.1);color:#ef4444">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-title">API Endpoints</div>
+                        <div class="panel-sub">All active routes on this server</div>
+                    </div>
+                </div>
+                <table class="data-table">
+                    <thead><tr><th>Route</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="mono">/api/pollution</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/pollution" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/drones</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/drones" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/species</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/species" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/sensors</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/sensors" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/alerts</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/alerts" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/missions</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/missions" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/reports</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/reports" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/dashboard/overview</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/dashboard/overview" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/analytics/trends</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/analytics/trends" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/auth/me</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/auth/me" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                        <tr>
+                            <td><span class="mono">/api/health</span></td>
+                            <td><span class="badge badge-blue">GET</span></td>
+                            <td><span class="badge badge-green"><span class="dot" style="width:5px;height:5px;box-shadow:none"></span>Live</span></td>
+                            <td><a href="/api/health" target="_blank" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.7rem;display:inline-flex">Open ↗</a></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- POLLUTION -->
+        <section class="section" id="sec-pollution">
+            <div class="topbar">
+                <div><div class="page-title">Pollution Events</div><div class="page-subtitle">All detected pollution zones from the database</div></div>
+                <button class="btn btn-accent" onclick="loadPollution()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Refresh</button>
+            </div>
+            <div class="panel">
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Severity</th><th>Region</th><th>Status</th><th>Detected</th></tr></thead>
+                    <tbody id="pollution-body"><tr class="loading-row"><td colspan="7"><div class="spinner"></div><br>Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- DRONES -->
+        <section class="section" id="sec-drones">
+            <div class="topbar">
+                <div><div class="page-title">Drone Fleet</div><div class="page-subtitle">All registered drones and their current status</div></div>
+                <button class="btn btn-accent" onclick="loadDrones()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Refresh</button>
+            </div>
+            <div class="panel">
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Battery</th><th>Region</th><th>Last Update</th></tr></thead>
+                    <tbody id="drones-body"><tr class="loading-row"><td colspan="6"><div class="spinner"></div><br>Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- SPECIES -->
+        <section class="section" id="sec-species">
+            <div class="topbar">
+                <div><div class="page-title">Species Registry</div><div class="page-subtitle">Marine life tracked by the monitoring network</div></div>
+                <button class="btn btn-accent" onclick="loadSpecies()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Refresh</button>
+            </div>
+            <div class="panel">
+                <table class="data-table">
+                    <thead><tr><th>Name</th><th>Scientific Name</th><th>Status</th><th>Trend</th><th>Habitat</th><th>Region</th><th>Progress</th></tr></thead>
+                    <tbody id="species-body"><tr class="loading-row"><td colspan="7"><div class="spinner"></div><br>Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ALERTS -->
+        <section class="section" id="sec-alerts">
+            <div class="topbar">
+                <div><div class="page-title">Alerts</div><div class="page-subtitle">Active and resolved system alerts</div></div>
+                <button class="btn btn-accent" onclick="loadAlerts()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Refresh</button>
+            </div>
+            <div class="panel">
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>Type</th><th>Message</th><th>Severity</th><th>Resolved</th><th>Time</th></tr></thead>
+                    <tbody id="alerts-body"><tr class="loading-row"><td colspan="6"><div class="spinner"></div><br>Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- SENSORS -->
+        <section class="section" id="sec-sensors">
+            <div class="topbar">
+                <div><div class="page-title">Sensors</div><div class="page-subtitle">Underwater sensor network status</div></div>
+                <button class="btn btn-accent" onclick="loadSensors()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Refresh</button>
+            </div>
+            <div class="panel">
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Online</th><th>Depth (m)</th><th>Coordinates</th><th>Last Ping</th></tr></thead>
+                    <tbody id="sensors-body"><tr class="loading-row"><td colspan="7"><div class="spinner"></div><br>Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- MISSIONS -->
+        <section class="section" id="sec-missions">
+            <div class="topbar">
+                <div><div class="page-title">Missions</div><div class="page-subtitle">Drone mission logs and assignments</div></div>
+                <button class="btn btn-accent" onclick="loadMissions()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Refresh</button>
+            </div>
+            <div class="panel">
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Drones</th><th>Objectives</th><th>Start Time</th></tr></thead>
+                    <tbody id="missions-body"><tr class="loading-row"><td colspan="6"><div class="spinner"></div><br>Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- REPORTS -->
+        <section class="section" id="sec-reports">
+            <div class="topbar">
+                <div><div class="page-title">Reports</div><div class="page-subtitle">Field reports and analyst submissions</div></div>
+                <button class="btn btn-accent" onclick="loadReports()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Refresh</button>
+            </div>
+            <div class="panel">
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Tags</th><th>Created</th></tr></thead>
+                    <tbody id="reports-body"><tr class="loading-row"><td colspan="5"><div class="spinner"></div><br>Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ANALYTICS -->
+        <section class="section" id="sec-analytics">
+            <div class="topbar">
+                <div><div class="page-title">Analytics</div><div class="page-subtitle">Trend data from the analytics pipeline</div></div>
+                <button class="btn btn-accent" onclick="loadAnalytics()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Refresh</button>
+            </div>
+            <div class="panel">
+                <table class="data-table">
+                    <thead><tr><th>Date</th><th>Pollution Index</th><th>Ocean Health Score</th></tr></thead>
+                    <tbody id="analytics-body"><tr class="loading-row"><td colspan="3"><div class="spinner"></div><br>Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- HEALTH -->
+        <section class="section" id="sec-health">
+            <div class="topbar">
+                <div><div class="page-title">API Health</div><div class="page-subtitle">Live system health check response</div></div>
+                <button class="btn btn-accent" onclick="loadHealth()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>Run Check</button>
+            </div>
+            <div class="panel" style="padding:2rem">
+                <pre id="health-output" style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:#38bdf8;white-space:pre-wrap">Loading…</pre>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<script>
+// ── Navigation ──────────────────────────────────────────
+function switchSection(name, btn) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    document.getElementById('sec-' + name).classList.add('active');
+    btn.classList.add('active');
+    // Auto-load data
+    const loaders = {
+        overview:  refreshAll,
+        pollution: loadPollution,
+        drones:    loadDrones,
+        species:   loadSpecies,
+        alerts:    loadAlerts,
+        sensors:   loadSensors,
+        missions:  loadMissions,
+        reports:   loadReports,
+        analytics: loadAnalytics,
+        health:    loadHealth,
+    };
+    if (loaders[name]) loaders[name]();
+}
+
+// ── Helpers ──────────────────────────────────────────────
+function severityBadge(s) {
+    if (!s) return `<span class="badge badge-muted">—</span>`;
+    const str = String(s).toLowerCase();
+    if (str === 'critical' || Number(s) >= 9) return `<span class="badge badge-red">Critical</span>`;
+    if (str === 'warning' || str === 'high' || Number(s) >= 7) return `<span class="badge badge-yellow">High</span>`;
+    if (str === 'medium' || Number(s) >= 4) return `<span class="badge badge-blue">Medium</span>`;
+    if (str === 'info' || str === 'low' || Number(s) >= 1) return `<span class="badge badge-muted">Low</span>`;
+    return `<span class="badge badge-blue">${s}</span>`;
+}
+
+function statusBadge(s) {
+    const map = {
+        active:   'badge-green',
+        online:   'badge-green',
+        deployed: 'badge-green',
+        idle:     'badge-blue',
+        charging: 'badge-yellow',
+        offline:  'badge-muted',
+        maintenance: 'badge-yellow',
+        completed: 'badge-blue',
+        monitoring: 'badge-green',
+        draft: 'badge-muted',
+        published: 'badge-green',
+        archived: 'badge-muted',
+        critical: 'badge-red',
+        endangered: 'badge-red',
+        vulnerable: 'badge-yellow',
+        threatened: 'badge-yellow',
+        'near-threatened': 'badge-yellow',
+        'least-concern': 'badge-green',
+    };
+    const cls = map[(s||'').toLowerCase()] || 'badge-muted';
+    return `<span class="badge ${cls}">${s||'—'}</span>`;
+}
+
+function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' });
+}
+
+function setBody(id, html) {
+    document.getElementById(id).innerHTML = html;
+}
+
+function errRow(id, cols, msg) {
+    setBody(id, `<tr class="loading-row"><td colspan="${cols}" style="color:#ef4444">⚠ ${msg}</td></tr>`);
+}
+
+// ── Overview ─────────────────────────────────────────────
+async function refreshAll() {
+    try {
+        const [dash, drones, alerts] = await Promise.all([
+            fetch('/api/dashboard/overview').then(r=>r.json()),
+            fetch('/api/drones').then(r=>r.json()),
+            fetch('/api/alerts').then(r=>r.json()),
+        ]);
+        document.getElementById('stat-pollution').textContent = dash.pollutionHotspots ?? '—';
+        document.getElementById('stat-drones').textContent   = drones.total ?? '—';
+        document.getElementById('stat-species').textContent  = dash.speciesTracked ?? '—';
+        document.getElementById('stat-alerts').textContent   = alerts.total ?? '—';
+    } catch(e) {
+        ['stat-pollution','stat-drones','stat-species','stat-alerts'].forEach(id=>{
+            document.getElementById(id).textContent = 'ERR';
+        });
+    }
+}
+
+// ── Pollution ────────────────────────────────────────────
+async function loadPollution() {
+    setBody('pollution-body','<tr class="loading-row"><td colspan="7"><div class="spinner"></div><br>Loading…</td></tr>');
+    try {
+        const { pollution } = await fetch('/api/pollution?limit=100').then(r=>r.json());
+        if (!pollution?.length) { setBody('pollution-body','<tr class="loading-row"><td colspan="7">No data</td></tr>'); return; }
+        setBody('pollution-body', pollution.map(p=>`<tr>
+            <td><span class="mono">${p.id}</span></td>
+            <td>${p.name||'—'}</td>
+            <td><span class="badge badge-purple">${p.type||'—'}</span></td>
+            <td>${severityBadge(p.severity)}</td>
+            <td>${p.region||'—'}</td>
+            <td>${statusBadge(p.status)}</td>
+            <td>${fmtDate(p.detectedAt)}</td>
+        </tr>`).join(''));
+    } catch(e) { errRow('pollution-body',7,e.message); }
+}
+
+// ── Drones ───────────────────────────────────────────────
+async function loadDrones() {
+    setBody('drones-body','<tr class="loading-row"><td colspan="6"><div class="spinner"></div><br>Loading…</td></tr>');
+    try {
+        const { drones } = await fetch('/api/drones?limit=100').then(r=>r.json());
+        if (!drones?.length) { setBody('drones-body','<tr class="loading-row"><td colspan="6">No data</td></tr>'); return; }
+        setBody('drones-body', drones.map(d=>`<tr>
+            <td><span class="mono">${d.id}</span></td>
+            <td>${d.name||'—'}</td>
+            <td>${statusBadge(d.status)}</td>
+            <td>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <div class="progress-bar" style="width:80px">
+                        <div class="progress-fill" style="width:${d.battery}%;background:${d.battery>50?'linear-gradient(to right,#10b981,#34d399)':d.battery>20?'linear-gradient(to right,#f59e0b,#fbbf24)':'linear-gradient(to right,#ef4444,#f87171)'}"></div>
+                    </div>
+                    <span style="font-size:0.78rem;color:var(--muted)">${d.battery}%</span>
+                </div>
+            </td>
+            <td>${d.region||'—'}</td>
+            <td>${fmtDate(d.lastUpdate || d.lastMaintenance)}</td>
+        </tr>`).join(''));
+    } catch(e) { errRow('drones-body',6,e.message); }
+}
+
+// ── Species ───────────────────────────────────────────────
+async function loadSpecies() {
+    setBody('species-body','<tr class="loading-row"><td colspan="7"><div class="spinner"></div><br>Loading…</td></tr>');
+    try {
+        const { species } = await fetch('/api/species?limit=100').then(r=>r.json());
+        if (!species?.length) { setBody('species-body','<tr class="loading-row"><td colspan="7">No data</td></tr>'); return; }
+        setBody('species-body', species.map(s=>`<tr>
+            <td><strong>${s.name||'—'}</strong></td>
+            <td><em style="color:var(--muted)">${s.scientificName||'—'}</em></td>
+            <td>${statusBadge(s.status)}</td>
+            <td>${s.populationTrend==='increasing'?'▲ <span style="color:#10b981">Increasing</span>':s.populationTrend==='decreasing'?'▼ <span style="color:#ef4444">Decreasing</span>':'→ Stable'}</td>
+            <td>${s.habitat||'—'}</td>
+            <td>${s.region||'—'}</td>
+            <td>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <div class="progress-bar" style="width:80px"><div class="progress-fill" style="width:${s.conservationProgress||0}%"></div></div>
+                    <span style="font-size:0.78rem;color:var(--muted)">${s.conservationProgress||0}%</span>
+                </div>
+            </td>
+        </tr>`).join(''));
+    } catch(e) { errRow('species-body',7,e.message); }
+}
+
+// ── Alerts ────────────────────────────────────────────────
+async function loadAlerts() {
+    setBody('alerts-body','<tr class="loading-row"><td colspan="6"><div class="spinner"></div><br>Loading…</td></tr>');
+    try {
+        const { alerts } = await fetch('/api/alerts?limit=100').then(r=>r.json());
+        if (!alerts?.length) { setBody('alerts-body','<tr class="loading-row"><td colspan="6">No data</td></tr>'); return; }
+        setBody('alerts-body', alerts.map(a=>`<tr>
+            <td><span class="mono">${a.id}</span></td>
+            <td><span class="badge badge-purple">${a.category||a.type||'—'}</span></td>
+            <td style="max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.message||'—'}</td>
+            <td>${severityBadge(a.type || a.severity)}</td>
+            <td>${a.resolved?'<span class="badge badge-green">Yes</span>':'<span class="badge badge-red">No</span>'}</td>
+            <td>${fmtDate(a.timestamp)}</td>
+        </tr>`).join(''));
+    } catch(e) { errRow('alerts-body',6,e.message); }
+}
+
+// ── Sensors ───────────────────────────────────────────────
+async function loadSensors() {
+    setBody('sensors-body','<tr class="loading-row"><td colspan="7"><div class="spinner"></div><br>Loading…</td></tr>');
+    try {
+        const { sensors } = await fetch('/api/sensors?limit=100').then(r=>r.json());
+        if (!sensors?.length) { setBody('sensors-body','<tr class="loading-row"><td colspan="7">No data</td></tr>'); return; }
+        setBody('sensors-body', sensors.map(s=>`<tr>
+            <td><span class="mono">${s.id}</span></td>
+            <td>${s.name||'—'}</td>
+            <td><span class="badge badge-blue">${s.type||'—'}</span></td>
+            <td>${statusBadge(s.status)}</td>
+            <td>${s.online?'<span class="badge badge-green">Online</span>':'<span class="badge badge-muted">Offline</span>'}</td>
+            <td style="font-size:0.75rem;color:var(--muted)">${s.coordinates?`${s.coordinates.lat?.toFixed(3)}, ${s.coordinates.lng?.toFixed(3)}`:'—'}</td>
+            <td>${fmtDate(s.updatedAt || s.lastPing)}</td>
+        </tr>`).join(''));
+    } catch(e) { errRow('sensors-body',7,e.message); }
+}
+
+// ── Missions ──────────────────────────────────────────────
+async function loadMissions() {
+    setBody('missions-body','<tr class="loading-row"><td colspan="6"><div class="spinner"></div><br>Loading…</td></tr>');
+    try {
+        const { missions } = await fetch('/api/missions?limit=100').then(r=>r.json());
+        if (!missions?.length) { setBody('missions-body','<tr class="loading-row"><td colspan="6">No data</td></tr>'); return; }
+        setBody('missions-body', missions.map(m=>`<tr>
+            <td><span class="mono">${m.id}</span></td>
+            <td>${m.name||'—'}</td>
+            <td>${statusBadge(m.status)}</td>
+            <td><span class="badge badge-blue">${m.droneName || m.droneId || '—'}</span></td>
+            <td style="font-size:0.78rem;color:var(--muted)">${m.objective || '—'}</td>
+            <td>${fmtDate(m.startedAt || m.startTime)}</td>
+        </tr>`).join(''));
+    } catch(e) { errRow('missions-body',6,e.message); }
+}
+
+// ── Reports ───────────────────────────────────────────────
+async function loadReports() {
+    setBody('reports-body','<tr class="loading-row"><td colspan="5"><div class="spinner"></div><br>Loading…</td></tr>');
+    try {
+        const { reports } = await fetch('/api/reports?limit=100').then(r=>r.json());
+        if (!reports?.length) { setBody('reports-body','<tr class="loading-row"><td colspan="5">No data</td></tr>'); return; }
+        setBody('reports-body', reports.map(r=>`<tr>
+            <td><span class="mono">${r.id}</span></td>
+            <td>${r.title||'—'}</td>
+            <td>${statusBadge(r.status)}</td>
+            <td>${Array.isArray(r.tags)?r.tags.map(t=>`<span class="badge badge-blue" style="margin-right:2px">${t}</span>`).join(''):'—'}</td>
+            <td>${fmtDate(r.createdAt)}</td>
+        </tr>`).join(''));
+    } catch(e) { errRow('reports-body',5,e.message); }
+}
+
+// ── Analytics ─────────────────────────────────────────────
+async function loadAnalytics() {
+    setBody('analytics-body','<tr class="loading-row"><td colspan="3"><div class="spinner"></div><br>Loading…</td></tr>');
+    try {
+        const { trends } = await fetch('/api/analytics/trends').then(r=>r.json());
+        if (!trends?.length) { setBody('analytics-body','<tr class="loading-row"><td colspan="3">No data</td></tr>'); return; }
+        setBody('analytics-body', trends.map(t=>`<tr>
+            <td><span class="mono">${t.date}</span></td>
+            <td>${t.pollution}</td>
+            <td>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <div class="progress-bar" style="width:120px"><div class="progress-fill" style="width:${t.healthScore}%"></div></div>
+                    <span>${t.healthScore}/100</span>
+                </div>
+            </td>
+        </tr>`).join(''));
+    } catch(e) { errRow('analytics-body',3,e.message); }
+}
+
+// ── Health ────────────────────────────────────────────────
+async function loadHealth() {
+    document.getElementById('health-output').textContent = 'Checking…';
+    try {
+        const start = Date.now();
+        const data = await fetch('/api/health').then(r=>r.json());
+        const ms = Date.now() - start;
+        document.getElementById('health-output').textContent =
+            JSON.stringify({ ...data, responseTime: ms + 'ms', timestamp: new Date().toISOString() }, null, 2);
+    } catch(e) {
+        document.getElementById('health-output').style.color = '#ef4444';
+        document.getElementById('health-output').textContent = '⚠ ' + e.message;
+    }
+}
+
+// ── Auto-load on start ───────────────────────────────────
+refreshAll();
+</script>
+</body>
+</html>

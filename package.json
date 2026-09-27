@@ -1,0 +1,14 @@
+{
+  "name": "deepsea-guardian-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-Powered Deep Ocean Pollution & Biodiversity Monitoring Platform",
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev": "npm --prefix frontend run dev",
+    "start:backend": "npm --prefix backend run start",
+    "build": "npm --prefix frontend run build",
+    "seed": "npm --prefix frontend run seed"
+  }
+}
