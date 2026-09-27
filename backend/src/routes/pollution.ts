@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getDb } from "../db";
 import { execFile } from "child_process";
 import path from "path";
+import { getPythonBin } from "../lib/python";
 
 const router = Router();
 
@@ -97,7 +98,7 @@ router.post("/forecast", (req, res) => {
 
   const inputData = { severity, trend: trend || "stable", name: name || "Unknown Event" };
 
-  execFile("python", [scriptPath, JSON.stringify(inputData)], { cwd: mlDir }, (error, stdout, stderr) => {
+  execFile(getPythonBin(), [scriptPath, JSON.stringify(inputData)], { cwd: mlDir }, (error, stdout, stderr) => {
     if (error) {
       console.error("[ML Forecast] Error:", stderr);
       return res.status(500).json({ error: "Failed to run forecast", detail: stderr });

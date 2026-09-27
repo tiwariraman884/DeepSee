@@ -1,7 +1,11 @@
+"use client";
+
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar, MobileNav } from "@/components/layout/Topbar";
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { FloatingAssistant } from "@/components/ai/FloatingAssistant";
+
+import { useSSEStream } from "@/hooks/useSSEStream";
 
 export function DashboardShell({
   title,
@@ -12,6 +16,8 @@ export function DashboardShell({
   subtitle?: string;
   children: React.ReactNode;
 }) {
+  // Mount SSE globally so connection stays alive across all pages
+  useSSEStream();
   return (
     <div className="flex min-h-screen">
       <Sidebar />

@@ -22,6 +22,7 @@
 import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import path from "path";
 import { EventEmitter } from "events";
+import { getPythonBin, getMlDir } from "./python";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface MLPredictionInput {
@@ -67,7 +68,7 @@ class MLWorker extends EventEmitter {
     return new Promise((resolve, reject) => {
       console.log("[MLWorker] Spawning Python inference server...");
 
-      this.process = spawn("python", [this.scriptPath], {
+      this.process = spawn(getPythonBin(), [this.scriptPath], {
         cwd: this.mlDir,
         stdio: ["pipe", "pipe", "pipe"],
       });

@@ -1,0 +1,26 @@
+# DeepSea Guardian — ML dependencies
+#
+# Install with:
+#   python -m pip install -r ml/requirements.txt
+#
+# For the CPU-only PyTorch build (recommended — no NVIDIA GPU required):
+#   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# Core numerics
+numpy>=1.24
+pandas>=2.0
+scikit-learn>=1.3
+
+# Image handling
+Pillow>=10.0
+
+# Model persistence
+joblib>=1.3
+
+# Species vision classifier (transfer learning).
+# CPU build is sufficient; the model trains and infers without a GPU.
+torch>=2.2
+torchvision>=0.17
+
+# Dataset download (ml/download_sea_animals.py, ml/download_sf_water.py)
+kagglehub>=0.3

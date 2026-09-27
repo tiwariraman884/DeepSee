@@ -132,10 +132,14 @@ graph TD
 
 ### Machine Learning & Data Science
 - **Environment**: Python 3.9+
-- **Libraries**: Scikit-Learn, NumPy, Pandas, Pillow (PIL), Joblib
+- **Libraries**: Scikit-Learn, NumPy, Pandas, Pillow (PIL), Joblib, PyTorch, torchvision
 - **Pre-trained Models**:
   - `ml/anomaly_model.pkl`: Isolation Forest for multi-dimensional water quality telemetry
-  - `ml/species_classifier.pkl`: Multi-class marine life visual classifier
+  - `ml/species_classifier.pt`: Transfer-learned MobileNetV3-Small marine life classifier (~72.6% validation accuracy)
+
+Install the ML dependencies with `python -m pip install -r ml/requirements.txt`.
+For the CPU-only PyTorch build (no NVIDIA GPU required):
+`python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`
 
 ---
 
@@ -145,7 +149,96 @@ graph TD
 |---|---|---|---|
 | **Water Anomaly Detection** | Isolation Forest (`anomaly_model.pkl`) | Temperature (°C), pH Level, Salinity (PSU), Dissolved Oxygen (mg/L), Turbidity (NTU) | `isAnomaly: boolean`, `status: string` |
 | **Pollution Spread Forecast** | Polynomial Spread Regressor (`forecast_spread.py`) | Current Severity (1-10), Trend (`increasing`, `stable`, `decreasing`) | 6-hour hourly projection array `[{hour, label, severity}]` |
-| **Species Vision Classifier** | Feature Extractor + Classifier (`species_classifier.pkl`) | Base64-encoded RGB Image (32x32 normalized) | `species: string`, `confidence: float (0.0 - 1.0)` |
+| **Species Vision Classifier** | Transfer-learned MobileNetV3-Small (`species_classifier.pt`) | Base64-encoded RGB Image (224x224, ImageNet-normalised) | `species: string`, `confidence: float (0.0 - 1.0)`, `label`, `displayName`, `covered`, `matches[]` |
+
+---
+
+## 🐠 Species Dataset Utilisation
+
+The computer-vision classifier is trained on the Kaggle [`vencerlanz09/sea-animals-image-dataste`](https://www.kaggle.com/datasets/vencerlanz09/sea-animals-image-dataste)
+dataset (23 classes). That dataset is used for **three distinct purposes**, so its
+images are not just downloaded and forgotten:
+
+| Purpose | Where | Artefact |
+|---|---|---|
+| **Model training** | `ml/train_species_classifier_v2.py` | `ml/species_classifier.pt` |
+| **Quality measurement** | same script, hold-out split | `ml/species_classifier_metrics.json` |
+| **UI provenance** | `ml/export_species_samples.py` → `frontend/public/species/samples/` | `frontend/src/data/species-samples.json` |
+
+### Model accuracy
+
+The original approach (32×32 raw pixels + colour histogram → Random Forest)
+reached only **26.7%** validation accuracy, despite reporting 100% *training*
+accuracy — it was memorising. 32×32 downscaling destroys the shape cues needed
+to separate a whale from a shark.
+
+The current model fine-tunes an ImageNet-pretrained **MobileNetV3-Small** at
+224×224 with class-weighted loss and two-stage training (head, then last block):
+
+| Metric | Before | After |
+|---|---|---|
+| Validation accuracy | 26.7% | **72.6%** |
+| Macro F1 | 0.24 | **0.72** |
+| Train/val gap | 73 pts (severe overfit) | 5 pts (healthy) |
+
+Strongest classes: Otter (0.99 F1), Sea Urchins (0.94), Crabs (0.91), Starfish (0.91),
+Jellyfish (0.87), Turtle (0.82). Weakest: Eel (0.55), Fish (0.54), Sharks (0.57) —
+these are visually similar and legitimately confusable.
+
+Training takes ~25 minutes on CPU (no GPU required). Re-run with:
+```bash
+python ml/train_species_classifier_v2.py --epochs 6 --stage2-epochs 3 --max-per-class 400
+```
+
+### Runtime: resident classifier worker
+
+Loading PyTorch plus the checkpoint takes ~20s, so the model is **not** spawned per
+request. `ml/classify_species_server.py` runs as a long-lived process managed by
+`backend/src/lib/speciesWorker.ts`, started at boot. First request ≈10s, subsequent
+≈5s, versus ~44s if the model were reloaded every time.
+
+`ml/classify_species.py` remains as a one-shot fallback (and still falls back again
+to the legacy `.pkl` if the `.pt` checkpoint is absent).
+
+### Python interpreter resolution
+
+The backend used to invoke bare `python`, which fails with `ENOENT` when Python is
+not on PATH — and silently picks a dependency-less interpreter when several are
+installed. `backend/src/lib/python.ts` now resolves it in order:
+
+1. `PYTHON_BIN` environment variable (explicit override)
+2. A project virtualenv (`.venv` / `venv`)
+3. The first interpreter on PATH that can import numpy/sklearn/PIL/joblib
+4. `python` (last resort)
+
+Set `PYTHON_BIN` in `.env` only if the auto-detection picks the wrong interpreter.
+
+### Label mapping
+
+The model emits raw dataset class names (`Turtle_Tortoise`, `Whale`, …), which are
+meaningless to the app taxonomy. `ml/species_label_map.json` bridges the two and is
+mirrored in TypeScript at `frontend/src/lib/ml/species-vision.ts`.
+
+- 23 dataset classes → 18 app species
+- 16 species have dataset coverage; **`sp-005` and `sp-010` do not**
+- 12 dataset classes (`Dolphin`, `Octopus`, `Seal`, …) exist in training but have no
+  app species. The API returns `covered: false` for these and the UI shows a
+  *category-level detection only* warning rather than inventing a match.
+- Several classes map to multiple species (`Whale` → Blue/Humpback/Right Whale). The UI
+  lists every candidate and states that the model cannot separate them.
+
+### Reproducing the artefacts
+
+```bash
+python ml/download_sea_animals.py             # fetch the dataset into the kagglehub cache
+python ml/train_species_classifier_v2.py      # trains model + writes metrics JSON
+python ml/export_species_samples.py           # exports sample images into frontend/public
+```
+
+> `export_species_samples.py` exists because the Kaggle dataset lives in `~/.cache/kagglehub`,
+> outside the Next.js build. `next/image` can only serve from `frontend/public`, so a small
+> optimised selection is copied across at setup time. These are **training images, not live
+> observation footage** — the UI labels them as such.
 
 ---
 
@@ -213,10 +306,30 @@ Content-Type: application/json
 ```json
 {
   "status": "success",
-  "species": "Hawksbill Turtle",
-  "confidence": 0.942
+  "species": "Turtle_Tortoise",
+  "confidence": 0.942,
+  "rawLabel": "Turtle_Tortoise",
+  "label": "Turtle_Tortoise",
+  "displayName": "Turtle / Tortoise",
+  "covered": true,
+  "matches": [
+    {
+      "id": "sp-001",
+      "name": "Hawksbill Turtle",
+      "scientificName": "Eretmochelys imbricata",
+      "status": "critically_endangered",
+      "habitat": "Coral Reefs",
+      "region": "Coral Triangle",
+      "image": "/species/hawksbill-turtle.webp"
+    }
+  ]
 }
 ```
+
+`species` is the raw dataset class the model emitted. `matches` resolves it to app
+species via `ml/species_label_map.json`; when several species share a class they are
+all listed. `covered` is `false` for classes with no app counterpart — the UI then
+shows a category-level warning instead of a species profile.
 
 ---
 
@@ -232,10 +345,11 @@ DeepSea/
 │   └── package.json
 ├── frontend/
 │   ├── public/               # Static assets, logos, and sample species images
+│   │   └── species/samples/  # Training images exported from the Kaggle dataset
 │   ├── src/
 │   │   ├── app/              # Next.js App Router (dashboard, species, map, drones, alerts, etc.)
 │   │   ├── components/       # UI design system & AI capability cards
-│   │   │   ├── ai/           # AnomalyDetector, PollutionForecast, SpeciesClassifier
+│   │   │   ├── ai/           # AnomalyDetector, PollutionForecast, SpeciesClassifier, TrainingSamples
 │   │   │   ├── layout/       # DashboardShell, Sidebar, Topbar, BottomTabBar
 │   │   │   ├── map/          # Leaflet OceanMap integration
 │   │   │   └── ui/           # Cards, Buttons, Badges, Modals, Stats
@@ -248,13 +362,22 @@ DeepSea/
 │   └── package.json
 ├── ml/
 │   ├── anomaly_model.pkl             # Trained Isolation Forest model
-│   ├── species_classifier.pkl        # Trained Marine Vision model
+│   ├── species_classifier.pt         # Transfer-learned MobileNetV3 vision model
+│   ├── species_classifier.pkl        # Legacy scikit-learn model (fallback)
+│   ├── species_classifier_metrics.json # Validation accuracy + per-class report
+│   ├── species_label_map.json        # Kaggle class -> app species mapping
+│   ├── requirements.txt              # Python dependencies
 │   ├── ocean_sensor_data.csv         # Physical-chemical training dataset
 │   ├── predict.py                    # Anomaly detector execution script
+│   ├── predict_server.py             # Resident anomaly inference server
 │   ├── forecast_spread.py            # Spread trajectory regressor
-│   ├── classify_species.py           # Species computer vision classification script
+│   ├── classify_species.py           # Species CV classification (one-shot)
+│   ├── classify_species_server.py    # Resident species inference server
+│   ├── download_sea_animals.py       # Fetches the Kaggle species image dataset
+│   ├── export_species_samples.py     # Exports dataset samples for UI display
 │   ├── train_anomaly_detector.py     # Training script for anomaly model
-│   └── train_species_classifier.py   # Training script for vision classifier
+│   ├── train_species_classifier.py   # Legacy feature-based vision training
+│   └── train_species_classifier_v2.py # Transfer-learning vision training
 ├── .env.example
 ├── .gitignore
 ├── package.json

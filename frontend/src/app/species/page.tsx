@@ -10,6 +10,7 @@ import { EmptyState, LoadingState } from "@/components/ui/States";
 import { FilterBar, FilterChips, FilterSearch, type FilterChip } from "@/components/layout/FilterBar";
 import { SpeciesCard } from "@/components/domain/SpeciesCard";
 import { SpeciesClassifier } from "@/components/ai/SpeciesClassifier";
+import { TrainingSamples } from "@/components/ai/TrainingSamples";
 import { statusLabels } from "@/lib/constants";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { species as defaultSpecies } from "@/data/species.json";
@@ -198,6 +199,8 @@ export default function SpeciesPage() {
                 ))}
               </ul>
             </div>
+
+            <TrainingSamples speciesId={selected.id} speciesName={selected.name} />
           </div>
         )}
       </Modal>

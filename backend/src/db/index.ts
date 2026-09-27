@@ -200,5 +200,48 @@ function runMigrations(db: any): void {
       tags_json  TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- ── Drone Inspection Missions ─────────────────────────────────────────
+    -- Lifecycle for the anomaly-response workflow:
+    --   en_route → arrived → inspecting → complete | aborted
+    -- Distinct from `missions` (planned survey work); these are reactive
+    -- inspection flights triggered by a detected anomaly.
+    CREATE TABLE IF NOT EXISTS drone_inspections (
+      id                TEXT PRIMARY KEY,
+      drone_id          TEXT NOT NULL,
+      drone_name        TEXT NOT NULL,
+      alert_id          TEXT,
+      sensor_id         TEXT,
+      sensor_name       TEXT,
+      phase             TEXT NOT NULL CHECK(phase IN ('en_route','arrived','inspecting','complete','aborted')),
+      eta_seconds       INTEGER NOT NULL DEFAULT 0,
+      progress          INTEGER NOT NULL DEFAULT 0 CHECK(progress BETWEEN 0 AND 100),
+      target_lat        REAL NOT NULL,
+      target_lng        REAL NOT NULL,
+      origin_lat        REAL NOT NULL,
+      origin_lng        REAL NOT NULL,
+      route_json        TEXT NOT NULL DEFAULT '[]',
+      severity          TEXT,
+      threat_json       TEXT NOT NULL DEFAULT '[]',
+      summary           TEXT,
+      started_at        TEXT NOT NULL,
+      completed_at      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_insp_phase    ON drone_inspections(phase);
+    CREATE INDEX IF NOT EXISTS idx_insp_drone    ON drone_inspections(drone_id);
+    CREATE INDEX IF NOT EXISTS idx_insp_started  ON drone_inspections(started_at DESC);
+
+    -- ── Inspection Evidence ───────────────────────────────────────────────
+    -- Individual findings captured during the on-site inspection phase.
+    CREATE TABLE IF NOT EXISTS inspection_evidence (
+      id            TEXT PRIMARY KEY,
+      inspection_id TEXT NOT NULL REFERENCES drone_inspections(id) ON DELETE CASCADE,
+      kind          TEXT NOT NULL,
+      label         TEXT NOT NULL,
+      confidence    REAL NOT NULL DEFAULT 0,
+      detail        TEXT,
+      captured_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_evidence_insp ON inspection_evidence(inspection_id);
   `);
 }

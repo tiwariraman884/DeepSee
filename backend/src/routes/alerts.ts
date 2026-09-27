@@ -6,26 +6,31 @@ const router = Router();
 router.get("/", (req, res) => {
   const type = req.query.type as string;
   const resolved = req.query.resolved as string;
-  const limit = Math.min(Number(req.query.limit) || 200, 1000);
+  // Default to a small page: the dashboard renders every row it receives, so an
+  // unbounded default meant 200 alert cards on first paint. Callers that need
+  // more (e.g. the alerts page) pass an explicit ?limit=.
+  const limit = Math.min(Number(req.query.limit) || 25, 1000);
 
-  let query = `SELECT * FROM alerts WHERE 1=1`;
+  let where = ` WHERE 1=1`;
   const params: any[] = [];
 
   if (type && type !== "all") {
-    query += ` AND type = ?`;
+    where += ` AND type = ?`;
     params.push(type);
   }
   if (resolved !== undefined) {
-    query += ` AND resolved = ?`;
+    where += ` AND resolved = ?`;
     params.push(resolved === "true" ? 1 : 0);
   }
 
-  query += ` ORDER BY timestamp DESC LIMIT ?`;
-  params.push(limit);
-
   try {
     const db = getDb();
-    const rows = db.prepare(query).all(...params) as any[];
+    // Report the true match count independently of the page size, so the UI can
+    // say "showing 25 of 1029" instead of implying only 25 exist.
+    const totalRow = db.prepare(`SELECT COUNT(*) as count FROM alerts${where}`).get(...params) as any;
+    const rows = db
+      .prepare(`SELECT * FROM alerts${where} ORDER BY timestamp DESC LIMIT ?`)
+      .all(...params, limit) as any[];
     const mapped = rows.map(r => ({
       id: r.id, type: r.type, message: r.message,
       location: r.location, timestamp: r.timestamp,
@@ -33,7 +38,7 @@ router.get("/", (req, res) => {
       category: r.category, relatedEntity: r.related_entity,
       createdAt: r.created_at
     }));
-    return res.json({ alerts: mapped, total: mapped.length });
+    return res.json({ alerts: mapped, total: totalRow.count, limit, returned: mapped.length });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

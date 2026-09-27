@@ -4,6 +4,10 @@ import dynamic from "next/dynamic";
 import type { MapPoint } from "@/components/map/OceanMap";
 import type { Coordinates } from "@/types";
 
+// Declared before the dynamic() call below: the loading fallback closes over it,
+// and a `let` in the temporal dead zone would throw on first render.
+let lastMapHeight = "420px";
+
 const OceanMapInner = dynamic(
   () =>
     import("@/components/map/OceanMap")
@@ -29,8 +33,6 @@ const OceanMapInner = dynamic(
   }
 );
 
-let lastMapHeight = "420px";
-
 export function OceanMap(props: {
   points: MapPoint[];
   routes?: { id: string; path: Coordinates[]; color?: string }[];
@@ -41,6 +43,9 @@ export function OceanMap(props: {
   onViewportChange?: (center: [number, number], zoom: number) => void;
 }) {
   const height = props.height ?? "420px";
+  // Remember the height for the *next* loading fallback. Assigning during render
+  // is safe here because the value is only read by a fallback that renders after
+  // this component has mounted.
   lastMapHeight = height;
   return <OceanMapInner {...props} height={height} />;
 }

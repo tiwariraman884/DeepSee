@@ -2,8 +2,41 @@ import { Router } from "express";
 import { getDb } from "../db";
 import { execFile } from "child_process";
 import path from "path";
+import fs from "fs";
+import { getPythonBin, getMlDir } from "../lib/python";
+import { speciesWorker } from "../lib/speciesWorker";
 
 const router = Router();
+
+// ─── Computer-vision label mapping ───────────────────────────────────────────
+// The Kaggle-trained classifier emits raw dataset class names (e.g.
+// "Turtle_Tortoise"), which are meaningless to the app taxonomy. This map
+// bridges the two. It mirrors ml/species_label_map.json.
+const LABEL_MAP_PATH = path.join(process.cwd(), "..", "ml", "species_label_map.json");
+
+let _labelMap: any = null;
+function getLabelMap(): any {
+  if (_labelMap) return _labelMap;
+  try {
+    _labelMap = JSON.parse(fs.readFileSync(LABEL_MAP_PATH, "utf-8"));
+  } catch {
+    // Degrade gracefully: classification still works, it just won't be enriched.
+    _labelMap = { classToSpecies: {}, displayNames: {} };
+  }
+  return _labelMap;
+}
+
+function normalizeClass(raw: string, map: any): string {
+  if (!raw) return "";
+  const keys = Object.keys(map.classToSpecies || {});
+  if (keys.includes(raw)) return raw;
+  const lower = raw.trim().toLowerCase();
+  return keys.find(
+    (k) =>
+      k.toLowerCase() === lower ||
+      k.toLowerCase().replace(/[\s_]/g, "") === lower.replace(/[\s_]/g, "")
+  ) ?? raw.trim();
+}
 
 router.get("/", (req, res) => {
   const status = req.query.status as string;
@@ -45,32 +78,103 @@ router.get("/", (req, res) => {
   }
 });
 
-router.post("/classify", (req, res) => {
+router.post("/classify", async (req, res) => {
   const { image_b64 } = req.body;
   if (!image_b64) return res.status(400).json({ error: "Missing image base64 data" });
 
-  const mlDir = path.join(process.cwd(), "..", "ml");
+  let result: any;
+  try {
+    result = await classifyImage(image_b64);
+  } catch (err: any) {
+    console.error("[CV Classify] Error:", err?.message || err);
+    return res.status(500).json({ error: "Classification failed", detail: String(err?.message || err) });
+  }
+
+  return res.json(enrich(result));
+});
+
+/**
+ * Run the classifier. Prefers the resident Python worker (model already in RAM);
+ * falls back to a one-shot process so a broken worker degrades to slow rather
+ * than unavailable.
+ */
+async function classifyImage(image_b64: string): Promise<any> {
+  if (!speciesWorker.isReady) {
+    try {
+      await speciesWorker.start();
+    } catch (err: any) {
+      console.warn("[CV Classify] Worker unavailable, using one-shot fallback:", err?.message);
+    }
+  }
+
+  if (speciesWorker.isReady) {
+    return speciesWorker.classify(image_b64);
+  }
+
+  return runOneShot(image_b64);
+}
+
+function runOneShot(image_b64: string): Promise<any> {
+  const mlDir = getMlDir();
   const scriptPath = path.join(mlDir, "classify_species.py");
 
-  // Setting larger maxBuffer since we pass base64 over stdout/stdin if needed, 
-  // but we pass via args. Since args have limits, we should pass via stdin if it's large.
-  // Actually, passing a base64 string via command line arguments can exceed max length.
-  // Setting larger maxBuffer since stdout can be large theoretically, though we just output small JSON.
-  const child = execFile("python", [scriptPath], { cwd: mlDir, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
-    if (error) {
-      console.error("[CV Classify] Error:", stderr);
-      return res.status(500).json({ error: "Classification failed", detail: stderr });
-    }
-    try {
-      const result = JSON.parse(stdout.trim());
-      return res.json(result);
-    } catch {
-      return res.status(500).json({ error: "Invalid response from model" });
-    }
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      getPythonBin(),
+      [scriptPath],
+      { cwd: mlDir, maxBuffer: 1024 * 1024 * 10, timeout: 180000 },
+      (error, stdout, stderr) => {
+        if (error) return reject(new Error(stderr || error.message));
+        try {
+          resolve(JSON.parse(stdout.trim()));
+        } catch {
+          reject(new Error("Invalid response from model"));
+        }
+      }
+    );
+    child.stdin?.write(JSON.stringify({ image_b64 }));
+    child.stdin?.end();
   });
+}
 
-  child.stdin?.write(JSON.stringify({ image_b64 }));
-  child.stdin?.end();
-});
+/** Map the raw dataset label onto app species and attach species profiles. */
+function enrich(result: any): any {
+  if (result?.status !== "success" || !result.species) return result;
+
+  const map = getLabelMap();
+  const cls = normalizeClass(result.species, map);
+  const speciesIds: string[] = map.classToSpecies?.[cls] ?? [];
+
+  result.rawLabel = result.species;
+  result.label = cls;
+  result.displayName = map.displayNames?.[cls] ?? cls.replace(/[_-]/g, " ");
+  result.covered = speciesIds.length > 0;
+
+  if (speciesIds.length === 0) {
+    result.matches = [];
+    return result;
+  }
+
+  try {
+    const db = getDb();
+    const placeholders = speciesIds.map(() => "?").join(",");
+    const rows = db
+      .prepare(`SELECT * FROM species WHERE id IN (${placeholders})`)
+      .all(...speciesIds) as any[];
+    result.matches = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      scientificName: r.scientific_name,
+      status: r.status,
+      habitat: r.habitat,
+      region: r.region,
+      image: r.image,
+    }));
+  } catch {
+    result.matches = [];
+  }
+
+  return result;
+}
 
 export default router;

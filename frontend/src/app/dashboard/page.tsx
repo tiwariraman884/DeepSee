@@ -193,15 +193,32 @@ export default function DashboardPage() {
   const liveAlerts = useAppStore((s) => s._alerts);
   const fetchSummary = useAppStore((s) => s.fetchSummary);
   const startLiveUpdates = useAppStore((s) => s.startLiveUpdates);
-  useEffect(() => { 
-    fetchSummary(); 
+  // Subscribe to the raw collections (not just the getter) so the component
+  // re-renders once fetchSummary() resolves. getHorizonProjection() is a plain
+  // getter — calling it without subscribing to its inputs rendered the initial
+  // empty-array state (0 hotspots / 0 species) and never re-ran, because
+  // nothing the component watched changed when the fetch completed.
+  const dataLoaded = useAppStore((s) => s._loaded);
+  const pollutionCount = useAppStore((s) => s._pollution.length);
+  const speciesCount = useAppStore((s) => s._species.length);
+  useEffect(() => {
+    fetchSummary();
     startLiveUpdates();
   }, [fetchSummary, startLiveUpdates]);
   const openAlerts = liveAlerts.filter((a) => !a.resolved);
+  // Hard render cap. SSE pushes new alerts live, so even a bounded initial
+  // fetch can grow unboundedly over a long session — the card list must never
+  // render hundreds of nodes. The count badge still shows the true total.
+  const ALERT_RENDER_CAP = 25;
+  const visibleAlerts = openAlerts.slice(0, ALERT_RENDER_CAP);
 
   // Single source of truth for Time Machine projections — shared with the
   // Risk/Innovation pages so every surface stays synchronized.
-  const projection = getHorizonProjection();
+  // Recomputes whenever the horizon OR the underlying data changes.
+  const projection = useMemo(
+    () => getHorizonProjection(),
+    [getHorizonProjection, timeHorizon, dataLoaded, pollutionCount, speciesCount]
+  );
   // Intensity 0.7 (today) → 1.4 (5y) drives map marker emphasis.
   const intensity = 0.7 + (["today", "1m", "6m", "1y", "5y"].indexOf(timeHorizon) * 0.18);
 
@@ -305,14 +322,18 @@ export default function DashboardPage() {
           <Card className="flex flex-col">
             <CardHeader
               title="Recent Alerts"
-              subtitle={`${openAlerts.length} open`}
+              subtitle={
+                openAlerts.length > visibleAlerts.length
+                  ? `${openAlerts.length} open · showing latest ${visibleAlerts.length}`
+                  : `${openAlerts.length} open`
+              }
               icon={<Shield className="h-4 w-4" />}
             />
             <div className="max-h-[420px] flex-1 space-y-2 overflow-y-auto pr-1">
               {openAlerts.length === 0 ? (
                 <EmptyState title="No open alerts" description="All clear across monitored regions." />
               ) : (
-                openAlerts.map((a) => (
+                visibleAlerts.map((a) => (
                   <div key={a.id} className={`rounded-lg border p-3 ${alertMeta[a.type].bg}`}>
                     <div className="flex items-center justify-between">
                       <p className={`text-sm font-medium ${alertMeta[a.type].color}`}>{a.message.split(" — ")[0]}</p>
@@ -327,7 +348,7 @@ export default function DashboardPage() {
         </section>
 
         {/* AI CAPABILITIES MOVED TO /ai-center */}
-        
+
         {/* CHART ROW — 300px */}
         <Suspense fallback={<ChartsSkeleton />}>
           <DashboardCharts
@@ -350,7 +371,7 @@ export default function DashboardPage() {
               <EmptyState title="No open alerts" description="All clear across monitored regions." />
             ) : (
               <div className="space-y-2">
-                {openAlerts.map((a) => (
+                {visibleAlerts.map((a) => (
                   <div key={a.id} className={`rounded-lg border p-3 ${alertMeta[a.type].bg}`}>
                     <div className="flex items-center justify-between">
                       <p className={`text-sm font-medium ${alertMeta[a.type].color}`}>{a.message.split(" — ")[0]}</p>

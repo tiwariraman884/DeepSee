@@ -1,38 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Radio, Navigation, Camera, MapPin, Play } from "lucide-react";
+import { Radio, Navigation, Camera, MapPin, AlertTriangle } from "lucide-react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { DroneCard } from "@/components/domain/DroneCard";
 import { droneStatusMeta } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { Coordinates, Drone, Mission } from "@/types";
+import type { Drone, Mission } from "@/types";
 import { OceanMap } from "@/components/map/OceanMapLazy";
-
-
-function interpolate(a: Coordinates, b: Coordinates, t: number): Coordinates {
-  return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
-}
-
-function useSimulatedPositions(routes: { id: string; path: Coordinates[] }[]) {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 1500);
-    return () => clearInterval(id);
-  }, []);
-  return routes.map((r) => {
-    const seg = tick % (r.path.length - 1);
-    const t = (tick % 1) + ((Math.floor(tick) % 10) / 10);
-    const pos = interpolate(r.path[seg], r.path[seg + 1] ?? r.path[0], t % 1);
-    return { id: r.id, pos };
-  });
-}
+import { useAppStore } from "@/store/useAppStore";
+// Note: useSSEStream is mounted in the layout — no need to mount it here again.
+// We read drone state directly from the global Zustand store.
 
 export default function DronesPage() {
   const [drones, setDrones] = useState<Drone[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
+  const droneDispatch = useAppStore((s) => s.droneDispatch);
+  const dronePositions = useAppStore((s) => s.dronePositions);
 
   useEffect(() => {
     Promise.all([
@@ -46,38 +32,122 @@ export default function DronesPage() {
       .catch(() => {});
   }, []);
 
-  const activeMissions = missions.filter((m) => m.status === "active");
-  const sim = useSimulatedPositions(activeMissions.map((m) => ({ id: m.id, path: m.route })));
-
+  // Build map points — SSE live position takes priority over static DB position
   const mapPoints = drones
     .filter((d) => d.status !== "offline")
     .map((d) => {
-      const mission = activeMissions.find((m) => m.droneId === d.id);
-      const simPos = mission ? sim.find((s) => s.id === mission.id)?.pos : undefined;
+      const livePos = dronePositions[d.id];
+      const finalPos = livePos
+        ? { lat: livePos.lat, lng: livePos.lng }
+        : d.position;
+      const isDispatched = !!livePos && livePos.status === "active";
+
       return {
         id: d.id,
-        coordinates: simPos ?? d.position,
-        color: d.status === "active" ? "#22e6a3" : d.status === "charging" ? "#fbbf24" : "#43d1ff",
-        radius: 8,
-        label: d.name,
+        coordinates: finalPos,
+        color: isDispatched ? "#ff6b35" : d.status === "active" ? "#22e6a3" : d.status === "charging" ? "#fbbf24" : "#43d1ff",
+        radius: isDispatched ? 14 : 8,
+        label: isDispatched ? `🚁 ${d.name} — DISPATCHED` : d.name,
         popup: (
           <div>
             <p className="font-semibold">{d.name}</p>
-            <p className="text-xs">Depth {d.depth}m · Battery {d.battery}%</p>
+            <p className="text-xs">Battery {livePos?.battery ?? d.battery}%</p>
+            {isDispatched && <p className="text-xs text-orange-400 font-bold mt-1">🚁 En Route to Anomaly</p>}
           </div>
         ),
       };
     });
 
-  const routes = activeMissions.map((m) => ({ id: m.id, path: m.route, color: "#43d1ff" }));
+  // Anomaly target marker (red pulsing point)
+  const anomalyMarker =
+    droneDispatch?.targetLat && droneDispatch?.targetLng
+      ? [
+          {
+            id: "anomaly-target",
+            coordinates: { lat: droneDispatch.targetLat, lng: droneDispatch.targetLng },
+            color: "#ef4444",
+            radius: 16,
+            label: `🚨 Anomaly: ${droneDispatch.location}`,
+            popup: (
+              <div>
+                <p className="font-bold text-red-400">🚨 Active Anomaly</p>
+                <p className="text-xs">{droneDispatch.location}</p>
+                <p className="text-xs">Drone inbound • ETA ~60s</p>
+              </div>
+            ),
+          },
+        ]
+      : [];
+
+  const allMapPoints = [...mapPoints, ...anomalyMarker];
+
+  // Mission path: from drone origin → anomaly target
+  const missionRoutes = (() => {
+    const routes: { id: string; path: { lat: number; lng: number }[]; color?: string }[] = [];
+
+    if (
+      droneDispatch?.targetLat &&
+      droneDispatch?.targetLng &&
+      droneDispatch?.originLat &&
+      droneDispatch?.originLng
+    ) {
+      // Live drone position if available
+      const liveDrone = dronePositions[droneDispatch.droneId];
+      const currentLat = liveDrone?.lat ?? droneDispatch.originLat;
+      const currentLng = liveDrone?.lng ?? droneDispatch.originLng;
+
+      routes.push({
+        id: "mission-path",
+        path: droneDispatch.path 
+          ? droneDispatch.path 
+          : [
+              { lat: droneDispatch.originLat, lng: droneDispatch.originLng },
+              { lat: currentLat, lng: currentLng },
+              { lat: droneDispatch.targetLat, lng: droneDispatch.targetLng },
+            ],
+        color: "#ff6b35",
+      });
+    }
+
+    // Static active mission routes
+    missions
+      .filter((m) => m.status === "active")
+      .forEach((m) => {
+        if (!droneDispatch || !dronePositions[droneDispatch.droneId]) {
+          routes.push({ id: m.id, path: m.route, color: "#43d1ff" });
+        }
+      });
+
+    return routes;
+  })();
 
   return (
     <DashboardShell title="Underwater Drone Command Center" subtitle="Live fleet tracking & mission control">
+
+      {/* Dispatch banner */}
+      {droneDispatch && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
+          <AlertTriangle className="h-5 w-5 text-orange-400 flex-shrink-0 animate-pulse" />
+          <div>
+            <p className="text-sm font-bold text-orange-300">🚁 Drone Auto-Dispatched!</p>
+            <p className="text-xs text-orange-200/80">
+              <span className="font-semibold">{droneDispatch.droneName ?? droneDispatch.droneId}</span> is en route to anomaly at{" "}
+              <span className="font-semibold text-red-300">{droneDispatch.location}</span>
+              {droneDispatch.targetLat && (
+                <span className="ml-2 text-orange-200/60">
+                  ({droneDispatch.targetLat.toFixed(3)}°, {droneDispatch.targetLng?.toFixed(3)}°)
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card className="p-3">
-            <CardHeader title="Live Fleet Tracking" icon={<Navigation className="h-4 w-4" />} />
-            <OceanMap points={mapPoints} routes={routes} height="420px" />
+            <CardHeader title="Live Fleet Tracking" icon={<Navigation className="h-4 w-4" />} subtitle={droneDispatch ? "🚨 Active dispatch — orange path = mission route" : undefined} />
+            <OceanMap points={allMapPoints} routes={missionRoutes} height="460px" />
           </Card>
         </div>
         <div className="space-y-4">
@@ -165,3 +235,4 @@ export default function DronesPage() {
     </DashboardShell>
   );
 }
+

@@ -6,12 +6,13 @@ We derive sensor-like features from this and merge with synthetic data.
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import IsolationForest
-import joblib, warnings
+import joblib, warnings, os
 warnings.filterwarnings("ignore")
 
+base_dir = os.path.dirname(__file__)
 SF_PATH = r"C:\Users\Lenovo\.cache\kagglehub\datasets\jboysen\sf-beaches-water\versions\1\beach.csv"
-SYNTH_PATH = "ocean_sensor_data.csv"
-MODEL_OUT  = "anomaly_model.pkl"
+SYNTH_PATH = os.path.join(base_dir, "ocean_sensor_data.csv")
+MODEL_OUT  = os.path.join(base_dir, "anomaly_model.pkl")
 
 print("Phase 1: Loading datasets...")
 
