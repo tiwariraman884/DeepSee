@@ -89,19 +89,19 @@ export function PollutionForecast() {
               <div className="text-xs text-slate-400 mb-2 flex items-center gap-2">
                 <AlertTriangle className="w-3 h-3 text-orange-400" /> Projected Severity (1-10)
               </div>
-              <div className="flex items-end justify-between h-24 gap-2">
+              <div className="flex items-end justify-between h-32 gap-2">
                 {predictions.map((p, i) => (
-                  <div key={i} className="flex flex-col items-center flex-1 gap-1">
-                    <span className="text-[10px] text-slate-300 font-mono">{p.severity.toFixed(1)}</span>
+                  <div key={i} className="flex flex-col items-center flex-1 gap-1.5">
+                    <span className="text-sm text-slate-300 font-mono font-bold">{p.severity.toFixed(1)}</span>
                     <motion.div
                       initial={{ height: 0 }}
                       animate={{ height: `${(p.severity / 10) * 100}%` }}
                       transition={{ delay: i * 0.1, duration: 0.5, type: "spring" }}
-                      className={`w-full rounded-t-sm ${
+                      className={`w-full rounded-t-md ${
                         p.severity > 7 ? "bg-red-500/80" : p.severity > 4 ? "bg-orange-500/80" : "bg-emerald-500/80"
                       }`}
                     />
-                    <span className="text-[10px] text-slate-500">{p.label}</span>
+                    <span className="text-xs text-slate-400 font-semibold">{p.label}</span>
                   </div>
                 ))}
               </div>

@@ -1,11 +1,22 @@
+/**
+ * Sensors API Routes
+ * ===================
+ * Naya architecture:
+ *   POST /api/sensors/ingest  → EventBus mein publish karo (MQTT broker ki tarah)
+ *   POST /api/sensors/predict → RAM-loaded ML model se instant prediction
+ *   GET  /api/sensors/stream  → SSE real-time stream (replaces polling)
+ *   GET  /api/sensors         → All sensors from DB
+ */
+
 import { Router } from "express";
-import { execFile } from "child_process";
-import path from "path";
 import { getDb } from "../db";
+import { eventBus, TOPICS, SensorReadingEvent } from "../lib/eventBus";
+import { mlWorker } from "../lib/mlWorker";
+import { sseManager } from "../lib/sseManager";
 
 const router = Router();
 
-// GET /api/sensors - List all sensors
+// ─── GET /api/sensors — All sensors from database ────────────────────────────
 router.get("/", (req, res) => {
   const status = req.query.status as string;
   const limit = Math.min(Number(req.query.limit) || 200, 1000);
@@ -37,7 +48,18 @@ router.get("/", (req, res) => {
   }
 });
 
-// GET /api/sensors/live - SSE endpoint for live sensor updates
+// ─── GET /api/sensors/stream — SSE real-time stream ──────────────────────────
+// Frontend yahan connect karta hai aur real-time events receive karta hai
+// Ye polling (har 5s mein fetch) se 100x better hai
+router.get("/stream", (req, res) => {
+  const clientId = sseManager.addClient(res);
+
+  req.on("close", () => {
+    sseManager.removeClient(clientId);
+  });
+});
+
+// ─── GET /api/sensors/live — Legacy SSE (backwards compatible) ────────────────
 router.get("/live", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -56,21 +78,73 @@ router.get("/live", (req, res) => {
       }));
       res.write(`data: ${JSON.stringify(mapped)}\n\n`);
     } catch (err) {
-      console.error("[SSE] Error fetching sensors:", err);
+      console.error("[SSE-Legacy] Error:", err);
     }
   };
 
   sendSensors();
   const interval = setInterval(sendSensors, 5000);
+  req.on("close", () => clearInterval(interval));
+});
 
-  req.on("close", () => {
-    clearInterval(interval);
+// ─── GET /api/sensors/readings/:id — Time-series data for a sensor ────────────
+router.get("/readings/:id", (req, res) => {
+  const { id } = req.params;
+  const limit = Math.min(Number(req.query.limit) || 100, 1000);
+
+  try {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT * FROM sensor_readings
+      WHERE sensor_id = ?
+      ORDER BY recorded_at DESC
+      LIMIT ?
+    `).all(id, limit) as any[];
+
+    return res.json({ sensorId: id, readings: rows.reverse(), total: rows.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/sensors/ingest — MQTT-like sensor data ingestion ───────────────
+// Sensors apna data yahan POST karte hain
+// Ye directly DB mein nahi jaata — pehle EventBus (Kafka queue) mein jaata hai
+router.post("/ingest", (req, res) => {
+  const { sensorId, sensorName, ...readings } = req.body;
+
+  if (!sensorId) {
+    return res.status(400).json({ error: "sensorId required" });
+  }
+
+  const event: SensorReadingEvent = {
+    sensorId,
+    sensorName: sensorName || sensorId,
+    temperature: readings.temperature,
+    ph:          readings.ph,
+    salinity:    readings.salinity,
+    oxygen:      readings.oxygen,
+    turbidity:   readings.turbidity,
+    timestamp:   new Date().toISOString(),
+  };
+
+  // Publish to EventBus (like sending to Kafka topic / MQTT broker)
+  // This returns IMMEDIATELY — the pipeline worker processes it async
+  eventBus.publish<SensorReadingEvent>(TOPICS.SENSOR_READING, event);
+
+  // 202 Accepted — data queued, not yet processed (correct REST semantics)
+  return res.status(202).json({
+    status: "queued",
+    message: "Sensor data queued for ML processing",
+    sensorId,
+    timestamp: event.timestamp,
   });
 });
 
-// POST /api/sensors/predict - Run ML Anomaly Detection on sensor data
-// Body: { temperature: number, ph: number, salinity: number, oxygen: number, turbidity: number }
-router.post("/predict", (req, res) => {
+// ─── POST /api/sensors/predict — Direct ML prediction (interactive use) ───────
+// Dashboard ke "Run Anomaly Detection" button ke liye
+// Uses RAM-loaded model (NOT spawning new Python process each time)
+router.post("/predict", async (req, res) => {
   const data = req.body;
 
   if (!data || Object.keys(data).length === 0) {
@@ -83,23 +157,31 @@ router.post("/predict", (req, res) => {
     return res.status(400).json({ error: `Missing fields: ${missing.join(", ")}` });
   }
 
-  // Path to the Python predict script and ml directory
-  const mlDir = path.join(process.cwd(), "..", "ml");
-  const scriptPath = path.join(mlDir, "predict.py");
+  try {
+    // mlWorker.predict() uses the RAM-loaded model — no Python spawn overhead
+    const result = await mlWorker.predict({
+      temperature: data.temperature,
+      ph:          data.ph,
+      salinity:    data.salinity,
+      oxygen:      data.oxygen,
+      turbidity:   data.turbidity,
+    });
 
-  execFile("python", [scriptPath, JSON.stringify(data)], { cwd: mlDir }, (error, stdout, stderr) => {
-    if (error) {
-      console.error("[ML] Error:", stderr);
-      return res.status(500).json({ error: "Failed to run ML prediction", detail: stderr });
-    }
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: "ML prediction failed", detail: err.message });
+  }
+});
 
-    try {
-      const result = JSON.parse(stdout.trim());
-      return res.json(result);
-    } catch {
-      console.error("[ML] Could not parse output:", stdout);
-      return res.status(500).json({ error: "Invalid response from ML model" });
-    }
+// ─── GET /api/sensors/pipeline-stats — Pipeline health & metrics ──────────────
+router.get("/pipeline-stats", (req, res) => {
+  return res.json({
+    mlWorker: {
+      ready: mlWorker.isReady(),
+      status: mlWorker.isReady() ? "model_in_ram" : "loading",
+    },
+    eventBus: eventBus.getStats(),
+    sse: sseManager.getStats(),
   });
 });
 
