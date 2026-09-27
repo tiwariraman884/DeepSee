@@ -17,6 +17,7 @@ import {
   Settings,
   Info,
   X,
+  Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,7 @@ const primary = [
 ];
 
 const more = [
+  { href: "/ai-center", label: "AI Center", icon: Cpu },
   { href: "/map", label: "Ocean Map", icon: Map },
   { href: "/risk", label: "Risk Engine", icon: Brain },
   { href: "/alerts", label: "Alerts", icon: AlertTriangle },

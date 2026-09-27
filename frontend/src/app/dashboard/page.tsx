@@ -1,8 +1,7 @@
 "use client";
 
 import { Suspense, useState, useMemo } from "react";
-import { AnomalyDetector } from "@/components/ai/AnomalyDetector";
-import { PollutionForecast } from "@/components/ai/PollutionForecast";
+
 import dynamic from "next/dynamic";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { StatCard } from "@/components/ui/StatCard";
@@ -327,12 +326,8 @@ export default function DashboardPage() {
           </Card>
         </section>
 
-        {/* AI CAPABILITIES ROW */}
-        <section className="grid gap-4 lg:grid-cols-2">
-          <AnomalyDetector />
-          <PollutionForecast />
-        </section>
-
+        {/* AI CAPABILITIES MOVED TO /ai-center */}
+        
         {/* CHART ROW — 300px */}
         <Suspense fallback={<ChartsSkeleton />}>
           <DashboardCharts
