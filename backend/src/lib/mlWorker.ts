@@ -57,6 +57,10 @@ class MLWorker extends EventEmitter {
   private readonly scriptPath: string;
   private restartAttempts = 0;
   private readonly MAX_RESTARTS = 5;
+  /** True after an explicit stop() — suppresses the auto-restart on exit. */
+  private stopped = false;
+  /** Resolves the current start() promise via the ready handshake. */
+  private resolveReady: (() => void) | null = null;
 
   constructor() {
     super();
@@ -89,7 +93,8 @@ class MLWorker extends EventEmitter {
               this.ready = true;
               this.restartAttempts = 0;
               console.log(`[MLWorker] ✅ Python ML Server READY — model loaded in RAM (${msg.model})`);
-              resolve();
+              this.resolveReady?.();
+              this.resolveReady = null;
               return;
             }
 
@@ -135,6 +140,7 @@ class MLWorker extends EventEmitter {
         }
 
         // Auto-restart (like a Kubernetes pod restart policy)
+        if (this.stopped) return; // explicit shutdown — do not respawn
         if (this.restartAttempts < this.MAX_RESTARTS) {
           this.restartAttempts++;
           const delay = Math.min(1000 * this.restartAttempts, 10000);
@@ -150,12 +156,18 @@ class MLWorker extends EventEmitter {
         reject(err);
       });
 
-      // Timeout if model doesn't load in 30s
-      setTimeout(() => {
+      // Timeout if model doesn't load in 30s — unref'd and cleared on ready
+      // so it never keeps the event loop alive after a successful startup.
+      const loadTimeout = setTimeout(() => {
         if (!this.ready) {
           reject(new Error("[MLWorker] Timeout: Python server did not become ready in 30s"));
         }
       }, 30000);
+      loadTimeout.unref?.();
+      this.resolveReady = () => {
+        clearTimeout(loadTimeout);
+        resolve();
+      };
     });
   }
 
@@ -207,7 +219,17 @@ class MLWorker extends EventEmitter {
 
   stop(): void {
     if (this.process) {
+      this.stopped = true; // exit handler must not auto-restart
       this.process.kill("SIGTERM");
+      // Detach the child and its stdio pipes from the event loop so the parent
+      // (e.g. a Jest worker) can exit without waiting for the OS to reap the
+      // killed process.
+      try {
+        this.process.unref?.();
+        (this.process.stdin as any)?.unref?.();
+        (this.process.stdout as any)?.unref?.();
+        (this.process.stderr as any)?.unref?.();
+      } catch { /* already gone */ }
       this.process = null;
       this.ready = false;
     }

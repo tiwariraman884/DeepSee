@@ -122,37 +122,33 @@ export function LazyVideo({
       if (!cancelled) setError(true);
     };
 
+    const noopLog = () => log("pause-state-change", state());
     video.addEventListener("loadstart", () => log("loadstart", state()));
     video.addEventListener("loadedmetadata", onReady);
     video.addEventListener("loadeddata", onReady);
     video.addEventListener("canplay", onCanPlay);
-    video.addEventListener("play", () => log("play", state()));
-    video.addEventListener("playing", () => log("playing", state()));
-    video.addEventListener("pause", () => log("pause", state()));
-    video.addEventListener("waiting", () => log("waiting", state()));
-    video.addEventListener("stalled", () => log("stalled", state()));
+    video.addEventListener("play", noopLog);
+    video.addEventListener("playing", noopLog);
+    video.addEventListener("pause", noopLog);
+    video.addEventListener("waiting", noopLog);
+    video.addEventListener("stalled", noopLog);
     video.addEventListener("error", onError);
 
     if (video.readyState >= 2) {
       attemptPlay("readyState");
     }
 
-    const removeVideoListener = (target: EventTarget, type: string, listener: EventListener) => {
-      target.removeEventListener(type, listener);
-    };
-
     return () => {
       cancelled = true;
-      removeVideoListener(video, "loadstart", () => log("loadstart", state()));
-      removeVideoListener(video, "loadedmetadata", onReady);
-      removeVideoListener(video, "loadeddata", onReady);
-      removeVideoListener(video, "canplay", onCanPlay);
-      removeVideoListener(video, "play", () => log("play", state()));
-      removeVideoListener(video, "playing", () => log("playing", state()));
-      removeVideoListener(video, "pause", () => log("pause", state()));
-      removeVideoListener(video, "waiting", () => log("waiting", state()));
-      removeVideoListener(video, "stalled", () => log("stalled", state()));
-      removeVideoListener(video, "error", onError);
+      video.removeEventListener("loadedmetadata", onReady);
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("canplay", onCanPlay);
+      video.removeEventListener("play", noopLog);
+      video.removeEventListener("playing", noopLog);
+      video.removeEventListener("pause", noopLog);
+      video.removeEventListener("waiting", noopLog);
+      video.removeEventListener("stalled", noopLog);
+      video.removeEventListener("error", onError);
       if (interactionHandler) {
         window.removeEventListener("pointerdown", interactionHandler);
         window.removeEventListener("keydown", interactionHandler);
@@ -181,7 +177,10 @@ export function LazyVideo({
           loop
           playsInline
           autoPlay={!reduce}
-          preload="auto"
+          // "auto" makes every off-screen instance (carousel × 5, backgrounds)
+          // download the full file before it is even shown — "metadata" still
+          // lets autoplay start but defers the bulk of the download.
+          preload={priority ? "auto" : "metadata"}
           disableRemotePlayback
           className="h-full w-full object-cover"
           onError={() => setError(true)}

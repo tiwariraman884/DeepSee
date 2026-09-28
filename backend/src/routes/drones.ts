@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { getDb } from "../db";
+import { requireAuth } from "../lib/authMiddleware";
 
 const router = Router();
 
-router.get("/", (req, res) => {
+router.get("/", requireAuth, (req, res) => {
   const region = req.query.region as string;
   const status = req.query.status as string;
   const limit = Math.min(Number(req.query.limit) || 200, 1000);
@@ -38,8 +39,7 @@ router.get("/", (req, res) => {
   }
 });
 
-// ── GET /api/drones/inspections — past anomaly-response missions ─────────
-router.get("/inspections/history", (req, res) => {
+router.get("/inspections/history", requireAuth, (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 20, 100);
   try {
     const db = getDb();
@@ -60,7 +60,7 @@ router.get("/inspections/history", (req, res) => {
   }
 });
 
-router.get("/:id", (req, res) => {
+router.get("/:id", requireAuth, (req, res) => {
   try {
     const db = getDb();
     const r = db.prepare("SELECT * FROM drones WHERE id = ?").get(req.params.id) as any;

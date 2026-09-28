@@ -18,7 +18,7 @@ import os
 import time
 import signal
 import joblib
-import numpy as np
+import pandas as pd
 
 # ─── Model loading (ONCE at startup, then stays in RAM) ──────────────────────
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "anomaly_model.pkl")
@@ -37,8 +37,15 @@ def load_model():
 # ─── Feature extraction ───────────────────────────────────────────────────────
 FEATURE_ORDER = ["temperature", "ph", "salinity", "oxygen", "turbidity"]
 
-def extract_features(data: dict) -> np.ndarray:
-    return np.array([[data[f] for f in FEATURE_ORDER]], dtype=np.float64)
+def extract_features(data: dict) -> pd.DataFrame:
+    """Named DataFrame matching the training schema.
+
+    The Isolation Forest was fitted on a pandas DataFrame with these column
+    names (ml/train_anomaly_detector.py). Passing an unnamed ndarray triggers
+    sklearn's 'X does not have valid feature names' warning on every request
+    — the input schema must be identical to the training schema.
+    """
+    return pd.DataFrame([[data[f] for f in FEATURE_ORDER]], columns=FEATURE_ORDER)
 
 # ─── Prediction (in-RAM, sub-millisecond) ────────────────────────────────────
 def predict(model, scaler, data: dict) -> dict:

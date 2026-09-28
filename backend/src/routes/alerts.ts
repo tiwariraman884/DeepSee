@@ -1,14 +1,12 @@
 import { Router } from "express";
 import { getDb } from "../db";
+import { requireAuth } from "../lib/authMiddleware";
 
 const router = Router();
 
-router.get("/", (req, res) => {
+router.get("/", requireAuth, (req, res) => {
   const type = req.query.type as string;
   const resolved = req.query.resolved as string;
-  // Default to a small page: the dashboard renders every row it receives, so an
-  // unbounded default meant 200 alert cards on first paint. Callers that need
-  // more (e.g. the alerts page) pass an explicit ?limit=.
   const limit = Math.min(Number(req.query.limit) || 25, 1000);
 
   let where = ` WHERE 1=1`;
@@ -25,8 +23,6 @@ router.get("/", (req, res) => {
 
   try {
     const db = getDb();
-    // Report the true match count independently of the page size, so the UI can
-    // say "showing 25 of 1029" instead of implying only 25 exist.
     const totalRow = db.prepare(`SELECT COUNT(*) as count FROM alerts${where}`).get(...params) as any;
     const rows = db
       .prepare(`SELECT * FROM alerts${where} ORDER BY timestamp DESC LIMIT ?`)

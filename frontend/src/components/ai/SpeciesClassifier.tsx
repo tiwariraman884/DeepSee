@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { Camera, Loader2, Search, CheckCircle2, Sparkles, Upload, AlertTriangle, ArrowRight } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -83,9 +84,18 @@ export function SpeciesClassifier() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_b64: imgToClassify }),
       });
+      // Guard: a non-JSON response (HTML error page, empty body from a hung
+      // proxy) makes res.json() throw SyntaxError before we can show a message.
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        console.error(`[SpeciesClassifier] Non-JSON response (${res.status}) from /api/species/classify`);
+        return;
+      }
       const data = await res.json();
-      if (data.status === "success") {
+      if (res.ok && data.status === "success") {
         setResult(data as ClassifyResult);
+      } else if (!res.ok) {
+        console.error("[SpeciesClassifier] Classification failed:", data?.error ?? res.status);
       }
     } catch (e) {
       console.error(e);
@@ -123,11 +133,12 @@ export function SpeciesClassifier() {
 
       <div className="space-y-4">
         {/* Upload Area */}
-        <div 
+        <div
           className="border-2 border-dashed border-slate-700/80 rounded-xl p-6 flex flex-col items-center justify-center text-slate-300 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-colors cursor-pointer relative overflow-hidden h-44 bg-black/30"
           onClick={() => fileInputRef.current?.click()}
         >
           {imagePreview ? (
+            // eslint-disable-next-line @next/next/no-img-element -- data-URL from FileReader (uploads) is not supported by next/image
             <img src={imagePreview} alt="Preview" className="absolute inset-0 w-full h-full object-contain bg-black/70 p-2" />
           ) : (
             <div className="flex flex-col items-center">
@@ -136,12 +147,12 @@ export function SpeciesClassifier() {
               <span className="text-xs text-ocean-200/50 mt-1">Supports PNG, JPG, WEBP formats</span>
             </div>
           )}
-          <input 
-            type="file" 
-            accept="image/*" 
-            ref={fileInputRef} 
-            className="hidden" 
-            onChange={handleImageUpload} 
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={handleImageUpload}
           />
         </div>
 
@@ -209,9 +220,11 @@ export function SpeciesClassifier() {
                         className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-2 transition hover:border-emerald-500/40 hover:bg-emerald-500/10"
                       >
                         {m.image && (
-                          <img
+                          <Image
                             src={m.image}
                             alt={m.name}
+                            width={64}
+                            height={40}
                             className="h-10 w-16 shrink-0 rounded object-cover"
                           />
                         )}

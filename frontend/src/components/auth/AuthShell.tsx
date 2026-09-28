@@ -157,6 +157,7 @@ function DigitalWaves() {
           stroke="currentColor"
           strokeWidth="1.5"
           className="text-white"
+          initial={{ d: "M0,200 Q400,100 800,200 T1600,200" }}
           animate={{
             d: [
               "M0,200 Q400,100 800,200 T1600,200",
@@ -172,6 +173,7 @@ function DigitalWaves() {
           stroke="currentColor"
           strokeWidth="1"
           className="text-white"
+          initial={{ d: "M0,250 Q400,350 800,250 T1600,250" }}
           animate={{
             d: [
               "M0,250 Q400,350 800,250 T1600,250",

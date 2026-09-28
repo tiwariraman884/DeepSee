@@ -18,7 +18,7 @@ export async function generateMetadata({
   if (!item) return routeMetadata({ title: "Drone", description: "Drone detail.", path: `/drones/${id}` });
   return routeMetadata({
     title: item.name,
-    description: `${item.name} â€” autonomous ocean-surveillance drone. Status: ${item.status}. Depth ${item.depth}m, battery ${item.battery}%.`,
+    description: `${item.name} — autonomous ocean-surveillance drone. Status: ${item.status}. Depth ${item.depth}m, battery ${item.battery}%.`,
     path: `/drones/${id}`,
   });
 }
@@ -30,7 +30,7 @@ export default async function DroneDetail({
 }) {
   const { id } = await params;
   // Static dataset is used ONLY for SEO metadata and as an offline render
-  // fallback â€” the live view below treats the backend as the source of truth.
+  // fallback — the live view below treats the backend as the source of truth.
   const fallback = drones.find((d) => d.id === id);
   if (!fallback) notFound();
 

@@ -3,11 +3,13 @@ import { getDb } from "../db";
 import { execFile } from "child_process";
 import path from "path";
 import { getPythonBin } from "../lib/python";
+import { requireAuth } from "../lib/authMiddleware";
+import { validate } from "../lib/validate";
+import { pollutionForecastSchema } from "../lib/validation";
 
 const router = Router();
 
 const VALID_TYPES = ["plastic", "oil_spill", "chemical", "ghost_net", "illegal_dumping"];
-const VALID_SEVERITIES = ["low", "medium", "high", "critical"];
 
 function severityRange(query: string): { min: number; max: number } | null {
   const n = Number(query);
@@ -19,7 +21,7 @@ function severityRange(query: string): { min: number; max: number } | null {
   return null;
 }
 
-router.get("/", (req, res) => {
+router.get("/", requireAuth, (req, res) => {
   const type = req.query.type as string;
   const severity = req.query.severity as string;
   const region = req.query.region as string;
@@ -71,7 +73,7 @@ router.get("/", (req, res) => {
   }
 });
 
-router.get("/:id", (req, res) => {
+router.get("/:id", requireAuth, (req, res) => {
   try {
     const db = getDb();
     const row = db.prepare("SELECT * FROM pollution_events WHERE id = ?").get(req.params.id) as any;
@@ -89,14 +91,13 @@ router.get("/:id", (req, res) => {
   }
 });
 
-router.post("/forecast", (req, res) => {
+router.post("/forecast", requireAuth, validate(pollutionForecastSchema), (req, res) => {
   const { severity, trend, name } = req.body;
-  if (severity === undefined) return res.status(400).json({ error: "Missing severity" });
 
   const mlDir = path.join(process.cwd(), "..", "ml");
   const scriptPath = path.join(mlDir, "forecast_spread.py");
 
-  const inputData = { severity, trend: trend || "stable", name: name || "Unknown Event" };
+  const inputData = { severity, trend, name };
 
   execFile(getPythonBin(), [scriptPath, JSON.stringify(inputData)], { cwd: mlDir }, (error, stdout, stderr) => {
     if (error) {

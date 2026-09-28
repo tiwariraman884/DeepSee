@@ -26,10 +26,14 @@ class SSEManager {
   private heartbeatInterval: NodeJS.Timeout | null = null;
 
   constructor() {
-    // Send heartbeat every 15s to keep connections alive (prevents nginx timeout)
+    // Send heartbeat every 15s to keep connections alive (prevents nginx timeout).
+    // unref()'d: it must never keep the process alive on its own — in production
+    // the HTTP server holds the event loop, and in Jest it otherwise surfaces
+    // as an open handle.
     this.heartbeatInterval = setInterval(() => {
       this.broadcast("heartbeat", { ts: new Date().toISOString(), clients: this.clients.size });
     }, 15000);
+    this.heartbeatInterval.unref?.();
   }
 
   /** Register a new SSE client */
@@ -108,6 +112,19 @@ class SSEManager {
         lastPing: c.lastPing,
       })),
     };
+  }
+
+  /**
+   * Test/QA hook: stop the heartbeat interval so test processes can exit
+   * gracefully (the 15s interval otherwise keeps the event loop alive).
+   * Production never calls this — the singleton lives for the process lifetime.
+   */
+  shutdownForTests(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    this.clients.clear();
   }
 }
 

@@ -5,13 +5,12 @@ import path from "path";
 import fs from "fs";
 import { getPythonBin, getMlDir } from "../lib/python";
 import { speciesWorker } from "../lib/speciesWorker";
+import { requireAuth } from "../lib/authMiddleware";
+import { validate } from "../lib/validate";
+import { speciesClassifySchema } from "../lib/validation";
 
 const router = Router();
 
-// ─── Computer-vision label mapping ───────────────────────────────────────────
-// The Kaggle-trained classifier emits raw dataset class names (e.g.
-// "Turtle_Tortoise"), which are meaningless to the app taxonomy. This map
-// bridges the two. It mirrors ml/species_label_map.json.
 const LABEL_MAP_PATH = path.join(process.cwd(), "..", "ml", "species_label_map.json");
 
 let _labelMap: any = null;
@@ -20,7 +19,6 @@ function getLabelMap(): any {
   try {
     _labelMap = JSON.parse(fs.readFileSync(LABEL_MAP_PATH, "utf-8"));
   } catch {
-    // Degrade gracefully: classification still works, it just won't be enriched.
     _labelMap = { classToSpecies: {}, displayNames: {} };
   }
   return _labelMap;
@@ -38,7 +36,7 @@ function normalizeClass(raw: string, map: any): string {
   ) ?? raw.trim();
 }
 
-router.get("/", (req, res) => {
+router.get("/", requireAuth, (req, res) => {
   const status = req.query.status as string;
   const region = req.query.region as string;
   const limit = Math.min(Number(req.query.limit) || 200, 1000);
@@ -78,9 +76,8 @@ router.get("/", (req, res) => {
   }
 });
 
-router.post("/classify", async (req, res) => {
+router.post("/classify", requireAuth, validate(speciesClassifySchema), async (req, res) => {
   const { image_b64 } = req.body;
-  if (!image_b64) return res.status(400).json({ error: "Missing image base64 data" });
 
   let result: any;
   try {
@@ -93,11 +90,6 @@ router.post("/classify", async (req, res) => {
   return res.json(enrich(result));
 });
 
-/**
- * Run the classifier. Prefers the resident Python worker (model already in RAM);
- * falls back to a one-shot process so a broken worker degrades to slow rather
- * than unavailable.
- */
 async function classifyImage(image_b64: string): Promise<any> {
   if (!speciesWorker.isReady) {
     try {
@@ -137,7 +129,6 @@ function runOneShot(image_b64: string): Promise<any> {
   });
 }
 
-/** Map the raw dataset label onto app species and attach species profiles. */
 function enrich(result: any): any {
   if (result?.status !== "success" || !result.species) return result;
 
@@ -162,13 +153,8 @@ function enrich(result: any): any {
       .prepare(`SELECT * FROM species WHERE id IN (${placeholders})`)
       .all(...speciesIds) as any[];
     result.matches = rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      scientificName: r.scientific_name,
-      status: r.status,
-      habitat: r.habitat,
-      region: r.region,
-      image: r.image,
+      id: r.id, name: r.name, scientificName: r.scientific_name,
+      status: r.status, habitat: r.habitat, region: r.region, image: r.image,
     }));
   } catch {
     result.matches = [];

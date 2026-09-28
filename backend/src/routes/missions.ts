@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { getDb } from "../db";
+import { requireAuth } from "../lib/authMiddleware";
 
 const router = Router();
 
-router.get("/", (req, res) => {
+router.get("/", requireAuth, (req, res) => {
   const status = req.query.status as string;
   const limit = Math.min(Number(req.query.limit) || 200, 1000);
 
