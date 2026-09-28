@@ -85,6 +85,9 @@ interface AppState {
   dronePositions: Record<string, DronePositionInfo>;
   // Live anomaly-response inspection (one at a time is enough for the demo UI)
   inspection: InspectionState | null;
+  /** True while the DashboardShell SSE stream is connected (drives the "SSE LIVE" pill). */
+  sseConnected: boolean;
+  setSseConnected: (v: boolean) => void;
   setRegion: (region: string | null) => void;
   setTimeHorizon: (h: TimeHorizon) => void;
   setDateRange: (range: string) => void;
@@ -166,6 +169,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   droneDispatch: null,
   dronePositions: {},
   inspection: null,
+  sseConnected: false,
+  setSseConnected: (v) => set({ sseConnected: v }),
 
   setRegion: (region) => set({ selectedRegion: region }),
   setTimeHorizon: (h) => set({ timeHorizon: h }),
@@ -314,6 +319,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const sse = new EventSource("/api/sensors/live");
     (window as any)._sensorSSE = sse;
+
+    // Without this, a dropped/proxied connection (e.g. dev-server reload) leaves
+    // a permanently dead EventSource and the dashboard silently stops updating.
+    sse.onerror = () => {
+      (window as any)._sensorSSE = null;
+      sse.close();
+      setTimeout(() => get().startLiveUpdates(), 3000);
+    };
 
     sse.onmessage = (event) => {
       try {

@@ -20,11 +20,14 @@ const ML_DEP_CHECK = "import numpy, sklearn, PIL, joblib";
 
 let _resolved: string | null = null;
 
-function works(candidate: string): boolean {
+function works(candidate: string, args: string[] = ["-c", ML_DEP_CHECK]): boolean {
   try {
-    execFileSync(candidate, ["-c", ML_DEP_CHECK], {
+    // 60s: importing sklearn+torch deps can take several seconds each, and in
+    // CI/test runs several workers probe simultaneously — 20s timed out under
+    // that load and silently degraded the whole pipeline to a broken "python".
+    execFileSync(candidate, args, {
       stdio: "ignore",
-      timeout: 20000,
+      timeout: 60000,
       windowsHide: true,
     });
     return true;
@@ -42,18 +45,25 @@ function venvCandidates(): string[] {
     .filter((p) => fs.existsSync(p));
 }
 
-function pathCandidates(): string[] {
+function pathCandidates(): { bin: string; args?: string[] }[] {
   // Common install locations when PATH is not set up.
-  const names = process.platform === "win32"
-    ? [
-        "python.exe",
-        "C:\\Python314\\python.exe",
-        "C:\\Python313\\python.exe",
-        "C:\\Python312\\python.exe",
-        "C:\\Python311\\python.exe",
-      ]
-    : ["python3", "python"];
-  return names;
+  if (process.platform === "win32") {
+    const explicit = [
+      "python.exe",
+      "C:\\Python314\\python.exe",
+      "C:\\Python313\\python.exe",
+      "C:\\Python312\\python.exe",
+      "C:\\Python311\\python.exe",
+    ].map((bin) => ({ bin }));
+    // The official Windows launcher, installed with python.org builds.
+    explicit.push({ bin: "py.exe" } as any);
+    explicit.push({ bin: "py" } as any);
+    return explicit;
+  }
+  return [
+    { bin: "python3" },
+    { bin: "python" },
+  ];
 }
 
 export function getPythonBin(): string {
@@ -79,9 +89,9 @@ export function getPythonBin(): string {
   }
 
   for (const candidate of pathCandidates()) {
-    if (works(candidate)) {
-      console.log(`[Python] Using interpreter: ${candidate}`);
-      _resolved = candidate;
+    if (works(candidate.bin, candidate.args ? [...candidate.args, "-c", ML_DEP_CHECK] : undefined)) {
+      console.log(`[Python] Using interpreter: ${candidate.bin}`);
+      _resolved = candidate.bin;
       return _resolved;
     }
   }

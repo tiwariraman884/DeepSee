@@ -4,5 +4,6 @@
   "testMatch": ["**/__tests__/**/*.test.ts"],
   "transform": {
     "^.+\\.ts$": "esbuild-jest"
-  }
+  },
+  "setupFiles": ["<rootDir>/jest.setup.ts"]
 }

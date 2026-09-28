@@ -11,9 +11,13 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({ origin: "http://localhost:3000", credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "../public")));
+
+// ─── Rate Limiting ───────────────────────────────────────────────────────────
+import { rateLimit } from "./lib/rateLimit";
+app.use("/api/", rateLimit(100, 60_000)); // 100 requests per minute per IP
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 import authRoutes      from "./routes/auth";
@@ -54,9 +58,20 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// ─── 404 Handler ──────────────────────────────────────────────────────────────
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// ─── Error Handler ────────────────────────────────────────────────────────────
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[Server Error]", err);
+  res.status(500).json({ error: "Internal server error" });
+});
+
 // ─── Server startup — Wire up the full pipeline ───────────────────────────────
 app.listen(PORT, async () => {
-  console.log(`\n🌊 DeepSea Guardian Backend — http://localhost:${PORT}`);
+  console.log(`\nDeepSea Guardian Backend — http://localhost:${PORT}`);
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
   // Step 1: Start ML Worker (loads model into RAM)
@@ -64,34 +79,32 @@ app.listen(PORT, async () => {
   const { mlWorker } = await import("./lib/mlWorker");
   try {
     await mlWorker.start();
-    console.log("[Boot] ✅ ML Worker ready — model in RAM, ~1-5ms predictions");
+    console.log("[Boot] ML Worker ready — model in RAM, ~1-5ms predictions");
   } catch (err: any) {
-    console.warn("[Boot] ⚠️  ML Worker failed to start:", err.message);
-    console.warn("[Boot]     Predictions will fall back to spawning Python per-request");
+    console.warn("[Boot] ML Worker failed to start:", err.message);
+    console.warn("[Boot] Predictions will fall back to spawning Python per-request");
   }
 
-  // Step 2: Warm the species classifier so the first user request is fast.
-  // Loading torch + the checkpoint takes ~40s cold; doing it at boot keeps the
-  // request path well inside the frontend proxy timeout.
+  // Step 2: Warm the species classifier
   console.log("[Boot] Step 2/3 — Warming species classifier...");
   const { speciesWorker } = await import("./lib/speciesWorker");
   try {
     await speciesWorker.start();
   } catch (err: any) {
-    console.warn("[Boot] ⚠️  Species classifier failed to start:", err.message);
-    console.warn("[Boot]     /api/species/classify will fall back to one-shot Python");
+    console.warn("[Boot] Species classifier failed to start:", err.message);
+    console.warn("[Boot] /api/species/classify will fall back to one-shot Python");
   }
 
-  // Step 3: Initialize Sensor Data Pipeline (EventBus workers)
+  // Step 3: Initialize Sensor Data Pipeline
   console.log("[Boot] Step 3/3 — Initializing Sensor Data Pipeline...");
   const { initSensorPipeline } = await import("./lib/sensorPipeline");
   initSensorPipeline();
-  console.log("[Boot] ✅ Sensor pipeline active — EventBus → ML → SQLite WAL → SSE");
+  console.log("[Boot] Sensor pipeline active — Consumer → Dispatcher → Inspector");
 
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("📡 SSE Stream:     GET  /api/sensors/stream");
-  console.log("🤖 ML Predict:     POST /api/sensors/predict");
-  console.log("📥 Data Ingest:    POST /api/sensors/ingest");
-  console.log("📊 Pipeline Stats: GET  /api/sensors/pipeline-stats");
+  console.log("SSE Stream:     GET  /api/sensors/stream");
+  console.log("ML Predict:     POST /api/sensors/predict");
+  console.log("Data Ingest:    POST /api/sensors/ingest");
+  console.log("Pipeline Stats: GET  /api/sensors/pipeline-stats");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 });

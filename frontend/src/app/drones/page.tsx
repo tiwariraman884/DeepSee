@@ -1,13 +1,14 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
-import { Radio, Navigation, Camera, MapPin, AlertTriangle } from "lucide-react";
+import { Radio, Navigation, Camera, MapPin } from "lucide-react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { DroneCard } from "@/components/domain/DroneCard";
 import { LiveCameraFeed } from "@/components/domain/LiveCameraFeed";
 import { InspectionConsole } from "@/components/domain/InspectionConsole";
+import { DispatchHeader } from "@/components/domain/DispatchHeader";
 import { droneStatusMeta } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { Drone, Mission } from "@/types";
@@ -21,7 +22,6 @@ export default function DronesPage() {
   const [missions, setMissions] = useState<Mission[]>([]);
   const droneDispatch = useAppStore((s) => s.droneDispatch);
   const dronePositions = useAppStore((s) => s.dronePositions);
-  const inspection = useAppStore((s) => s.inspection);
 
   useEffect(() => {
     Promise.all([
@@ -125,63 +125,33 @@ export default function DronesPage() {
   })();
 
   return (
-    <DashboardShell title="Underwater Drone Command Center" subtitle="Live fleet tracking & mission control">
+    <DashboardShell title="Drone Command Center" subtitle="Autonomous marine operations · live fleet & mission control">
 
-      {/* Dispatch banner — mission header */}
-      {droneDispatch && (
-        <div className="mb-4 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-orange-400 flex-shrink-0 animate-pulse" />
-            <div>
-              <p className="text-sm font-bold text-orange-300">🚁 DRONE AUTO-DISPATCHED</p>
-              <p className="text-xs text-orange-200/80">
-                <span className="font-semibold">{droneDispatch.droneName ?? droneDispatch.droneId}</span> · Mission: Marine Threat Inspection · Target:{" "}
-                <span className="font-semibold text-red-300">{droneDispatch.location}</span>
-                {droneDispatch.targetLat && (
-                  <span className="ml-2 text-orange-200/60">
-                    ({droneDispatch.targetLat.toFixed(3)}°, {droneDispatch.targetLng?.toFixed(3)}°)
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2 pl-8 text-[10px]">
-            <span className="rounded bg-black/30 px-2 py-0.5 text-orange-200/80">
-              Status: {inspection?.phase?.toUpperCase() ?? "EN_ROUTE"}
-            </span>
-            {inspection?.selection && (
-              <>
-                <span className="rounded bg-black/30 px-2 py-0.5 text-orange-200/80">
-                  Distance: {inspection.selection.distanceKm} km
-                </span>
-                <span className="rounded bg-black/30 px-2 py-0.5 text-orange-200/80">
-                  Battery: {dronePositions[droneDispatch.droneId]?.battery ?? "—"}%
-                </span>
-                <span className="rounded bg-black/30 px-2 py-0.5 text-orange-200/80">
-                  ETA: {inspection.selection.etaDisplay}
-                </span>
-                <span className="rounded bg-black/30 px-2 py-0.5 text-emerald-300/90">
-                  Selection: {inspection.selection.reason}
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {/* ── AUTONOMOUS RESPONSE HEADER (or FLEET READY standby) ── */}
+      <DispatchHeader />
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      {/* ── MAIN: map + camera (mobile: camera first, then map) ── */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <div className="order-2 lg:order-1 lg:col-span-2">
           <Card className="p-3">
-            <CardHeader title="Live Fleet Tracking" icon={<Navigation className="h-4 w-4" />} subtitle={droneDispatch ? "🚨 Active dispatch — orange path = mission route" : undefined} />
+            <CardHeader
+              title="Live Mission Map"
+              icon={<Navigation className="h-4 w-4" />}
+              subtitle={
+                droneDispatch
+                  ? "Active dispatch — orange path = mission route"
+                  : "Fleet monitoring mode"
+              }
+            />
             <OceanMap points={allMapPoints} routes={missionRoutes} height="460px" />
           </Card>
         </div>
-        <div className="space-y-4">
+        <div className="order-1 space-y-4 lg:order-2">
           <Card>
             <CardHeader
-              title="Camera Feed"
+              title="Live Camera Feed"
               icon={<Camera className="h-4 w-4" />}
-              subtitle="Software simulation · tied to active inspection"
+              subtitle="Simulated ROV feed · tied to active inspection"
             />
             <LiveCameraFeed />
           </Card>
@@ -206,15 +176,15 @@ export default function DronesPage() {
         </div>
       </div>
 
+      {/* ── BOTTOM: mission strip + AI / evidence / timeline ── */}
+      <div className="mt-4">
+        <InspectionConsole />
+      </div>
+
       <div className="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {drones.map((d) => (
           <DroneCard key={d.id} drone={d} />
         ))}
-      </div>
-
-      {/* INSPECTION CONSOLE — AI analysis / evidence / mission timeline */}
-      <div className="mt-4">
-        <InspectionConsole />
       </div>
 
       <Card className="mt-4">

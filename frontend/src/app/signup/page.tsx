@@ -30,6 +30,10 @@ function SignupForm() {
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  // Gate the submit button until React has hydrated: a native form submit
+  // before hydration does a raw GET and leaks email/password into the URL.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const signup = useAuthStore((s) => s.signup);
 
   useEffect(() => {
@@ -37,7 +41,10 @@ function SignupForm() {
     if (error) {
       setGeneralError(error);
     }
-  }, [searchParams]);
+    // Warm the post-signup route while the user is still filling the form —
+    // avoids the on-demand dev compile stall right after the redirect.
+    router.prefetch("/dashboard");
+  }, [searchParams, router]);
 
   const {
     register,
@@ -63,10 +70,9 @@ function SignupForm() {
         toastError(msg);
         setIsSubmitting(false);
       } else {
-        setIsSuccess(true);
-        setTimeout(() => {
-          router.push("/dashboard");
-        }, 600);
+        // Navigate immediately — no artificial delay (dashboard is prefetched
+        // on mount, so this is a client-side hop).
+        router.push("/dashboard");
       }
     } catch {
       const msg = "Something went wrong.";
@@ -162,7 +168,7 @@ function SignupForm() {
 
         <button
           type="submit"
-          disabled={isSubmitting || isSuccess}
+          disabled={isSubmitting || isSuccess || !mounted}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-3 text-sm font-semibold text-gray-900 transition hover:bg-sky-50 disabled:opacity-70"
         >
           <AnimatePresence mode="wait">

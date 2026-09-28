@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - AUTH_SECRET=${AUTH_SECRET:-deepsea-guardian-very-secret-key-that-is-32-chars-long}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@deepsea.io}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-[REDACTED]}
+      - PYTHON_BIN=/usr/local/bin/python
+    volumes:
+      - backend-data:/app/.data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:5000
+      - NEXT_PUBLIC_CARTO_BASMAPS_KEY=${NEXT_PUBLIC_CARTO_BASMAPS_KEY:-}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-data:

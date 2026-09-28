@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "test": "jest --config jest.config.json --forceExit --verbose"
+    "test": "jest --config jest.config.json --verbose --maxWorkers 1"
   },
   "keywords": [],
   "author": "",
@@ -20,7 +20,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "pdfkit": "^0.20.2",
-    "searoute-js": "^0.1.0"
+    "searoute-js": "^0.1.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

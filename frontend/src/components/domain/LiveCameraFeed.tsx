@@ -17,8 +17,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Radar, Droplets, Waves, Fish, FlaskConical, Trash2, Leaf, CircleDot } from "lucide-react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { Camera, Droplets, Waves, Fish, FlaskConical, Trash2, Leaf, CircleDot, BatteryFull, Wifi, WifiOff, Radar } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +34,7 @@ const THREAT_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 const CAMERA_STATE: Record<string, { label: string; rec: boolean }> = {
   en_route: { label: "EN ROUTE", rec: true },
   arrived: { label: "INITIALIZING INSPECTION", rec: true },
-  inspecting: { label: "LIVE UNDERWATER FEED", rec: true },
+  inspecting: { label: "LIVE INSPECTION FEED", rec: true },
   complete: { label: "INSPECTION COMPLETE", rec: false },
   aborted: { label: "MISSION ABORTED", rec: false },
 };
@@ -43,14 +43,16 @@ export function LiveCameraFeed() {
   const inspection = useAppStore((s) => s.inspection);
   const droneDispatch = useAppStore((s) => s.droneDispatch);
   const dronePositions = useAppStore((s) => s.dronePositions);
+  const sseConnected = useAppStore((s) => s.sseConnected);
+  const reduce = useReducedMotion();
   const [frame, setFrame] = useState(0);
 
-  // ~12fps frame counter drives the ambient scanline/particle animation.
+  // ~8fps ambient drift — paused entirely under prefers-reduced-motion.
   useEffect(() => {
-    if (!inspection) return;
-    const id = setInterval(() => setFrame((f) => f + 1), 80);
+    if (!inspection || reduce) return;
+    const id = setInterval(() => setFrame((f) => f + 1), 120);
     return () => clearInterval(id);
-  }, [inspection]);
+  }, [inspection, reduce]);
 
   const phase = inspection?.phase ?? null;
   const liveDrone = droneDispatch ? dronePositions[droneDispatch.droneId] : null;
@@ -63,38 +65,44 @@ export function LiveCameraFeed() {
     const id = setInterval(() => tickClock((c) => c + 1), 1000);
     return () => clearInterval(id);
   }, [inspection, phase]);
-  const elapsed = useMemo(() => {
+  // Plain computation (no useMemo): recomputes on every render — the 1s tick
+  // clock and the ~12fps frame counter both drive re-renders, so the display
+  // stays live without a dependency array that must include render drivers.
+  const elapsed = (() => {
     const startMs = inspection?.startedAt ? Date.parse(inspection.startedAt) : NaN;
     if (Number.isNaN(startMs)) return "—";
     const secs = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
     const m = Math.floor(secs / 60), s = secs % 60;
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }, [inspection?.startedAt, inspection?.phase, frame]);
+  })();
 
   const hud = useMemo(() => {
     if (!droneDispatch && !inspection) return null;
     return {
       droneName: inspection?.droneName || droneDispatch?.droneName || "Drone",
       depth: liveDrone ? `${(0.9 + (liveDrone.progress ?? 0) * 0.012).toFixed(1)}km` : "1.24km",
-      battery: liveDrone?.battery ?? 100,
+      battery: liveDrone?.battery ?? null,
       progress: inspection?.progress ?? liveDrone?.progress ?? 0,
-      speed: phase === "en_route" ? "4.2 kn" : phase === "inspecting" ? "0.1 kn (holding)" : "—",
       location: inspection?.location || droneDispatch?.location || "",
     };
-  }, [droneDispatch, inspection, liveDrone, phase]);
+  }, [droneDispatch, inspection, liveDrone]);
 
   // ── Idle state: no mission, show standby ───────────────────────────────────
   if (!hud || !phase) {
     return (
-      <div className="relative aspect-video overflow-hidden rounded-lg border border-ocean-500/20 bg-abyss-950">
+      <div
+        className="relative aspect-video overflow-hidden rounded-lg border border-ocean-500/20 bg-abyss-950"
+        role="status"
+        aria-label="Camera standby"
+      >
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-ocean-200/40">
-          <Camera className="h-8 w-8" />
-          <p className="text-[11px] font-medium uppercase tracking-wider">Camera Standby</p>
+          <Camera className="h-8 w-8" aria-hidden="true" />
+          <p className="text-[11px] font-medium uppercase tracking-wider">Standby</p>
           <p className="max-w-[220px] text-center text-[10px] leading-relaxed text-ocean-200/30">
-            Live feed activates automatically when the fleet is dispatched to an anomaly.
+            Feed activates automatically when the fleet is dispatched to an anomaly.
           </p>
         </div>
-        <div className="absolute bottom-2 right-2 text-[10px] text-ocean-200/40">NO SIGNAL</div>
+        <div className="absolute bottom-2 right-2 text-[10px] font-medium uppercase tracking-wider text-ocean-200/40">No Signal</div>
       </div>
     );
   }
@@ -103,28 +111,33 @@ export function LiveCameraFeed() {
   const findings = inspection?.findings ?? [];
 
   return (
-    <div className="relative aspect-video overflow-hidden rounded-lg border border-ocean-500/30 bg-abyss-950">
-      {/* ── Ambient water visual (transit: drifting particles / inspecting: plume) ── */}
+    <div
+      className="relative aspect-video overflow-hidden rounded-lg border border-ocean-500/30 bg-abyss-950"
+      role="img"
+      aria-label={`ROV camera feed — ${camState?.label}`}
+    >
+      {/* ── Ambient water tone (transit: teal depth / inspecting: threat plume) ── */}
       <div
         className={cn(
           "absolute inset-0 transition-colors duration-1000",
-          scanning ? "bg-[radial-gradient(circle_at_50%_60%,rgba(239,68,68,0.18),transparent_65%)]"
-            : "bg-[radial-gradient(circle_at_50%_120%,rgba(34,230,163,0.22),transparent_60%)]"
+          scanning
+            ? "bg-[radial-gradient(circle_at_50%_60%,rgba(239,68,68,0.14),transparent_65%)]"
+            : "bg-[radial-gradient(circle_at_50%_120%,rgba(34,230,163,0.18),transparent_60%)]"
         )}
       />
-      {/* Particle drift — cheap deterministic transform, no extra state */}
+      {/* Marine-snow drift — single cheap transform, subtle */}
       <div
-        className="absolute inset-0 opacity-40"
+        className={cn("absolute inset-0 opacity-30", reduce && "opacity-10")}
         style={{
-          backgroundImage: "radial-gradient(rgba(255,255,255,0.14) 1px, transparent 1px)",
-          backgroundSize: "26px 26px",
-          transform: `translateY(${(frame * 0.6) % 26 - 13}px)`,
+          backgroundImage: "radial-gradient(rgba(255,255,255,0.12) 1px, transparent 1px)",
+          backgroundSize: "30px 30px",
+          transform: `translateY(${(frame * 0.6) % 30 - 15}px)`,
         }}
       />
       {/* Sonar sweep ring while holding on-site */}
-      {scanning && (
+      {scanning && !reduce && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="h-24 w-24 animate-pulse-ring rounded-full border-2 border-rose-400/60" />
+          <div className="h-24 w-24 animate-pulse-ring rounded-full border-2 border-rose-400/50" />
         </div>
       )}
 
@@ -149,43 +162,60 @@ export function LiveCameraFeed() {
             >
               <div className="rounded border border-rose-400/80 bg-rose-950/40 px-2 py-1 backdrop-blur-sm">
                 <div className="flex items-center gap-1.5">
-                  <Icon className="h-3 w-3 text-rose-300" />
+                  <Icon className="h-3 w-3 text-rose-300" aria-hidden="true" />
                   <span className="text-[9px] font-bold uppercase tracking-wide text-rose-200">{f.label}</span>
                 </div>
-                <div className="mt-0.5 text-[8px] text-rose-300/80">{Math.round(f.confidence * 100)}% conf</div>
+                <div className="mt-0.5 text-[8px] text-rose-300/80">{Math.round(f.confidence * 100)}% confidence · sim</div>
               </div>
             </motion.div>
           );
         })}
       </AnimatePresence>
 
-        <div className="absolute left-2 top-2 flex items-center gap-2">
-          <span className="flex items-center gap-1 rounded bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
-            <span className={cn("h-1.5 w-1.5 rounded-full bg-rose-400", camState?.rec && "animate-pulse")} />
-            REC
-          </span>
-          <span className="rounded bg-black/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-ocean-100">
-            {camState?.label}
-          </span>
-        </div>
-
-      {/* ── HUD top-right: battery ── */}
-      <div className="absolute right-2 top-2 flex items-center gap-1.5 rounded bg-black/60 px-2 py-0.5 text-[10px] text-ocean-100">
-        <Radar className="h-3 w-3 text-ocean-300" />
-        {hud.battery}%
+      {/* ── HUD top-left: REC + camera state ── */}
+      <div className="absolute left-2 top-2 flex items-center gap-2">
+        <span
+          className={cn(
+            "flex items-center gap-1 rounded bg-black/60 px-2 py-0.5 text-[10px] font-semibold",
+            camState?.rec ? "text-rose-300" : "text-ocean-200/60"
+          )}
+        >
+          <span className={cn("h-1.5 w-1.5 rounded-full bg-rose-400", camState?.rec && !reduce && "animate-pulse")} aria-hidden="true" />
+          REC
+        </span>
+        <span className="rounded bg-black/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-ocean-100">
+          {camState?.label}
+        </span>
       </div>
 
-      {/* ── HUD bottom bar: telemetry ── */}
+      {/* ── HUD top-right: battery + telemetry link ── */}
+      <div className="absolute right-2 top-2 flex items-center gap-1.5">
+        <span className="flex items-center gap-1 rounded bg-black/60 px-2 py-0.5 text-[10px] font-medium text-cyan-200">
+          <BatteryFull className="h-3 w-3" aria-hidden="true" />
+          {hud.battery != null ? `${hud.battery}%` : "—"}
+        </span>
+        <span
+          className={cn(
+            "flex items-center gap-1 rounded bg-black/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider",
+            sseConnected ? "text-emerald-300" : "text-rose-300"
+          )}
+          aria-label={sseConnected ? "Telemetry link live" : "Telemetry link offline"}
+        >
+          {sseConnected ? <Wifi className="h-3 w-3" aria-hidden="true" /> : <WifiOff className="h-3 w-3" aria-hidden="true" />}
+          {sseConnected ? "Telemetry" : "Offline"}
+        </span>
+      </div>
+
+      {/* ── HUD bottom bar: ROV telemetry ── */}
       <div className="absolute inset-x-0 bottom-0 border-t border-white/10 bg-black/60 px-2 py-1.5 backdrop-blur-sm">
-        <div className="mb-1 flex items-center justify-between text-[9px] text-ocean-200/80">
-          <span className="font-semibold text-white">Drone: {hud.droneName}</span>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-x-3 text-[9px] text-ocean-200/80">
+          <span className="font-semibold text-white">{hud.droneName}</span>
           <span>Depth: {hud.depth}</span>
+          <span className="hidden sm:inline">Mission: Marine Threat Inspection</span>
+          <span>Status: {camState?.label}</span>
+          <span>Elapsed: {elapsed}</span>
         </div>
-        <div className="mb-1 flex items-center justify-between text-[9px] text-ocean-200/60">
-          <span>Mission: Marine Threat Inspection</span>
-          <span>Status: {camState?.label} · Elapsed: {elapsed}</span>
-        </div>
-        <div className="h-1 overflow-hidden rounded-full bg-white/10">
+        <div className="h-1 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={hud.progress} aria-valuemin={0} aria-valuemax={100} aria-label="Mission progress">
           <div
             className={cn("h-full rounded-full transition-all duration-700", scanning ? "bg-rose-400" : "bg-emerald-400")}
             style={{ width: `${hud.progress}%` }}
@@ -200,9 +230,10 @@ export function LiveCameraFeed() {
 
       {/* ── Mission complete banner ── */}
       {phase === "complete" && inspection?.severity && (
-        <div className="absolute inset-x-2 bottom-8 rounded border border-emerald-500/40 bg-emerald-950/80 px-2 py-1 text-center backdrop-blur-sm">
-          <p className="text-[10px] font-bold text-emerald-200">
-            Severity: {inspection.severity.toUpperCase()} · {findings.length} threats recorded
+        <div className="absolute inset-x-2 bottom-10 rounded border border-emerald-500/40 bg-emerald-950/80 px-2 py-1 text-center backdrop-blur-sm">
+          <p className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-emerald-200">
+            <Radar className="h-3 w-3" aria-hidden="true" />
+            Inspection Complete · Severity: {inspection.severity.toUpperCase()} · {findings.length} evidence item{findings.length === 1 ? "" : "s"}
           </p>
         </div>
       )}

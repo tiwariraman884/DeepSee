@@ -10,6 +10,7 @@ import sensorsRoutes from "../routes/sensors";
 import pollutionRoutes from "../routes/pollution";
 import dashboardRoutes from "../routes/dashboard";
 import dronesRoutes from "../routes/drones";
+import { mlWorker } from "../lib/mlWorker";
 
 const app = express();
 app.use(cors());
@@ -21,6 +22,22 @@ app.use("/api/sensors", sensorsRoutes);
 app.use("/api/pollution", pollutionRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/drones", dronesRoutes);
+
+// Warm the resident ML worker BEFORE any test starts: the first spawn + model
+// load takes ~5-8s, which blows the 5s default per-test timeout if it happens
+// inside the first predict call.
+beforeAll(async () => {
+  try { await mlWorker.ensureStarted(); } catch { /* predict tests will fail loudly */ }
+}, 30000);
+
+afterAll(async () => {
+  // Kill the resident Python process so Jest exits without open handles and
+  // without late stderr logs firing after the test environment is torn down.
+  mlWorker.stop();
+  // Give the OS a moment to reap the killed child and close its stdio pipes —
+  // those pipe handles otherwise keep the event loop alive briefly.
+  await new Promise((r) => setTimeout(r, 500));
+});
 
 // ── HEALTH ───────────────────────────────────────────────────────────────────
 describe("GET /api/health", () => {

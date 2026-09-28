@@ -1,4 +1,4 @@
--export default async function run(page, ui) {
+export default async function run(page, ui) {
   const fs = await import("fs");
   const token = fs.readFileSync("C:/Users/Lenovo/Desktop/DeepSea/.tok.txt", "utf8").trim();
 

@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import crypto from "crypto";
-
 const SESSION_COOKIE_NAME = "auth-token";
 
 const PUBLIC_PATHS = [
