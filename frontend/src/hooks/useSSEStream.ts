@@ -48,6 +48,7 @@ export interface AnomalyAlertEvent {
 
 export interface DroneDispatchEvent {
   reason: string;
+  inspectionId?: string;
   targetSensor: string;
   location: string;
   droneId: string;
@@ -67,6 +68,33 @@ export interface DroneUpdateEvent {
   lng: number;
   status: string;
   battery?: number;
+  /** Present when the update belongs to an anomaly-response inspection. */
+  inspectionId?: string;
+  phase?: string;
+  progress?: number;
+}
+
+/** Emitted when the drone reaches the anomaly site and begins inspection. */
+export interface InspectionPhaseEvent {
+  inspectionId: string;
+  droneId: string;
+  droneName: string;
+  phase: "arrived" | "inspecting" | "complete" | "aborted";
+  location: string;
+  severity?: string;
+  summary?: string;
+  findings?: InspectionFinding[];
+  message: string;
+  timestamp: string;
+}
+
+/** A single threat identified by the drone camera during inspection. */
+export interface InspectionFinding {
+  kind: string;
+  label: string;
+  confidence: number;
+  detail: string;
+  capturedAt?: string;
 }
 
 export interface SSEStatus {
@@ -88,6 +116,9 @@ export function useSSEStream() {
 
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // The inspection_finding SSE event does not carry its inspectionId in some
+  // fallback paths — remember the most recent active one from drone_update.
+  const activeInspectionIdRef = useRef<string | null>(null);
   const [status, setStatus] = useState<SSEStatus>({
     connected: false,
     clientId: null,
@@ -160,10 +191,27 @@ export function useSSEStream() {
       });
     });
 
-    // ── drone_dispatch ────────────────────────────────────────────────────
+    // ── drone_dispatch (mission start: selection metadata + timeline) ─────
     es.addEventListener("drone_dispatch", (e) => {
-      const data: DroneDispatchEvent = JSON.parse(e.data);
+      const data = JSON.parse(e.data) as DroneDispatchEvent & {
+        eta_display?: string; distance_km?: number; selection_reason?: string;
+      };
       setDroneDispatchGlobal(data);  // persists in global store across pages
+      if (data.inspectionId) {
+        const store = useAppStore.getState();
+        store.setInspectionPhase(data.inspectionId, "en_route", 0);
+        store.setInspectionSelection(data.inspectionId, {
+          distanceKm: data.distance_km ?? 0,
+          etaDisplay: data.eta_display ?? "—",
+          reason: data.selection_reason ?? "nearest eligible drone",
+          startedAt: data.timestamp,
+        });
+        store.addInspectionTimeline(
+          data.inspectionId,
+          `${data.droneName ?? "Drone"} dispatched → ${data.location}` +
+          (data.distance_km != null ? ` (${data.distance_km} km · ETA ${data.eta_display ?? "—"})` : "")
+        );
+      }
       setStatus(prev => ({
         ...prev,
         lastEvent: "drone_dispatch",
@@ -175,9 +223,94 @@ export function useSSEStream() {
     es.addEventListener("drone_update", (e) => {
       const data: DroneUpdateEvent = JSON.parse(e.data);
       updateDronePosition(data);  // persists in global store across pages
+      // Track the live inspection phase so the camera feed reacts in real time.
+      if (data.inspectionId && data.phase) {
+        activeInspectionIdRef.current = data.inspectionId;
+        useAppStore.getState().setInspectionPhase(data.inspectionId, data.phase, data.progress);
+      }
       setStatus(prev => ({
         ...prev,
         lastEvent: "drone_update",
+        lastEventAt: new Date(),
+      }));
+    });
+
+    // ── inspection_phase (arrived / inspecting / complete) ────────────────
+    es.addEventListener("inspection_phase", (e) => {
+      const data: InspectionPhaseEvent = JSON.parse(e.data);
+      const store = useAppStore.getState();
+      store.setInspectionPhase(data.inspectionId, data.phase, data.phase === "complete" ? 100 : undefined);
+      store.setInspectionMeta(data.inspectionId, {
+        droneId: data.droneId,
+        droneName: data.droneName,
+        location: data.location,
+        severity: data.severity,
+        summary: data.summary,
+        completedAt: data.phase === "complete" ? data.timestamp : undefined,
+      });
+      store.addInspectionTimeline(
+        data.inspectionId,
+        data.phase === "complete"
+          ? `Inspection completed — severity ${data.severity ?? "n/a"}`
+          : `Drone arrived on site (${data.location})`
+      );
+      setStatus(prev => ({
+        ...prev,
+        lastEvent: "inspection_phase",
+        lastEventAt: new Date(),
+      }));
+    });
+
+    // ── inspection_started (canonical lifecycle start) ────────────────────
+    es.addEventListener("inspection_started", (e) => {
+      const data = JSON.parse(e.data) as { inspectionId: string; mission?: string };
+      useAppStore.getState().addInspectionTimeline(
+        data.inspectionId,
+        `Inspection started${data.mission ? ` (${data.mission})` : ""}`
+      );
+      setStatus(prev => ({ ...prev, lastEvent: "inspection_started", lastEventAt: new Date() }));
+    });
+
+    // ── inspection_progress (0→100 with step labels) ──────────────────────
+    es.addEventListener("inspection_progress", (e) => {
+      const data = JSON.parse(e.data) as { inspectionId: string; progress: number; label: string };
+      useAppStore.getState().setInspectionProgress(data.inspectionId, data.progress, data.label);
+      setStatus(prev => ({ ...prev, lastEvent: "inspection_progress", lastEventAt: new Date() }));
+    });
+
+    // ── ai_detection (species classifier result on a sample frame) ────────
+    es.addEventListener("ai_detection", (e) => {
+      const data = JSON.parse(e.data) as { inspectionId: string; label: string; confidence: number; conservation?: string; simulation?: boolean };
+      useAppStore.getState().setAiDetection(data.inspectionId, {
+        label: data.label,
+        confidence: data.confidence,
+        conservation: data.conservation,
+        simulation: data.simulation ?? true,
+      });
+      setStatus(prev => ({ ...prev, lastEvent: "ai_detection", lastEventAt: new Date() }));
+    });
+
+    // ── evidence_captured (canonical evidence event) ──────────────────────
+    es.addEventListener("evidence_captured", (e) => {
+      const data = JSON.parse(e.data) as { inspectionId: string; label: string; confidence: number; detail: string; kind: string };
+      const store = useAppStore.getState();
+      store.addInspectionFinding(data.inspectionId, data);
+      store.addInspectionTimeline(
+        data.inspectionId,
+        `Evidence captured: ${data.label} (${Math.round(data.confidence * 100)}%)`
+      );
+      setStatus(prev => ({ ...prev, lastEvent: "evidence_captured", lastEventAt: new Date() }));
+    });
+
+    // ── inspection_finding (legacy alias of evidence_captured) ────────────
+    es.addEventListener("inspection_finding", (e) => {
+      const data = JSON.parse(e.data) as InspectionFinding & { inspectionId: string };
+      // evidence_captured handles store updates; this legacy listener stays for
+      // older backends that only emit inspection_finding.
+      useAppStore.getState().addInspectionFinding(data.inspectionId, data);
+      setStatus(prev => ({
+        ...prev,
+        lastEvent: "inspection_finding",
         lastEventAt: new Date(),
       }));
     });

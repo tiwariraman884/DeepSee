@@ -6,6 +6,8 @@ import { DashboardShell } from "@/components/layout/DashboardShell";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { DroneCard } from "@/components/domain/DroneCard";
+import { LiveCameraFeed } from "@/components/domain/LiveCameraFeed";
+import { InspectionConsole } from "@/components/domain/InspectionConsole";
 import { droneStatusMeta } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { Drone, Mission } from "@/types";
@@ -19,6 +21,7 @@ export default function DronesPage() {
   const [missions, setMissions] = useState<Mission[]>([]);
   const droneDispatch = useAppStore((s) => s.droneDispatch);
   const dronePositions = useAppStore((s) => s.dronePositions);
+  const inspection = useAppStore((s) => s.inspection);
 
   useEffect(() => {
     Promise.all([
@@ -98,8 +101,8 @@ export default function DronesPage() {
 
       routes.push({
         id: "mission-path",
-        path: droneDispatch.path 
-          ? droneDispatch.path 
+        path: droneDispatch.path
+          ? droneDispatch.path
           : [
               { lat: droneDispatch.originLat, lng: droneDispatch.originLng },
               { lat: currentLat, lng: currentLng },
@@ -124,21 +127,44 @@ export default function DronesPage() {
   return (
     <DashboardShell title="Underwater Drone Command Center" subtitle="Live fleet tracking & mission control">
 
-      {/* Dispatch banner */}
+      {/* Dispatch banner — mission header */}
       {droneDispatch && (
-        <div className="mb-4 flex items-center gap-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
-          <AlertTriangle className="h-5 w-5 text-orange-400 flex-shrink-0 animate-pulse" />
-          <div>
-            <p className="text-sm font-bold text-orange-300">🚁 Drone Auto-Dispatched!</p>
-            <p className="text-xs text-orange-200/80">
-              <span className="font-semibold">{droneDispatch.droneName ?? droneDispatch.droneId}</span> is en route to anomaly at{" "}
-              <span className="font-semibold text-red-300">{droneDispatch.location}</span>
-              {droneDispatch.targetLat && (
-                <span className="ml-2 text-orange-200/60">
-                  ({droneDispatch.targetLat.toFixed(3)}°, {droneDispatch.targetLng?.toFixed(3)}°)
+        <div className="mb-4 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-orange-400 flex-shrink-0 animate-pulse" />
+            <div>
+              <p className="text-sm font-bold text-orange-300">🚁 DRONE AUTO-DISPATCHED</p>
+              <p className="text-xs text-orange-200/80">
+                <span className="font-semibold">{droneDispatch.droneName ?? droneDispatch.droneId}</span> · Mission: Marine Threat Inspection · Target:{" "}
+                <span className="font-semibold text-red-300">{droneDispatch.location}</span>
+                {droneDispatch.targetLat && (
+                  <span className="ml-2 text-orange-200/60">
+                    ({droneDispatch.targetLat.toFixed(3)}°, {droneDispatch.targetLng?.toFixed(3)}°)
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 pl-8 text-[10px]">
+            <span className="rounded bg-black/30 px-2 py-0.5 text-orange-200/80">
+              Status: {inspection?.phase?.toUpperCase() ?? "EN_ROUTE"}
+            </span>
+            {inspection?.selection && (
+              <>
+                <span className="rounded bg-black/30 px-2 py-0.5 text-orange-200/80">
+                  Distance: {inspection.selection.distanceKm} km
                 </span>
-              )}
-            </p>
+                <span className="rounded bg-black/30 px-2 py-0.5 text-orange-200/80">
+                  Battery: {dronePositions[droneDispatch.droneId]?.battery ?? "—"}%
+                </span>
+                <span className="rounded bg-black/30 px-2 py-0.5 text-orange-200/80">
+                  ETA: {inspection.selection.etaDisplay}
+                </span>
+                <span className="rounded bg-black/30 px-2 py-0.5 text-emerald-300/90">
+                  Selection: {inspection.selection.reason}
+                </span>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -152,19 +178,12 @@ export default function DronesPage() {
         </div>
         <div className="space-y-4">
           <Card>
-            <CardHeader title="Camera Feed" icon={<Camera className="h-4 w-4" />} />
-            <div className="relative aspect-video overflow-hidden rounded-lg bg-abyss-950">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(34,230,163,0.25),transparent_60%)]">
-                <div className="absolute inset-0 animate-pulse-ring" style={{ left: "50%", top: "60%" }} />
-              </div>
-              <div className="absolute inset-0 flex items-center justify-center text-ocean-200/50">
-                <Camera className="h-8 w-8 animate-pulse" />
-              </div>
-              <div className="absolute left-2 top-2 flex items-center gap-1 rounded bg-black/50 px-2 py-0.5 text-[10px] text-rose-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-rose-400" /> REC
-              </div>
-              <div className="absolute bottom-2 right-2 text-[10px] text-ocean-200/50">Nautilus-01 · 1240m</div>
-            </div>
+            <CardHeader
+              title="Camera Feed"
+              icon={<Camera className="h-4 w-4" />}
+              subtitle="Software simulation · tied to active inspection"
+            />
+            <LiveCameraFeed />
           </Card>
           <Card>
             <CardHeader title="Fleet Status" icon={<Radio className="h-4 w-4" />} />
@@ -191,6 +210,11 @@ export default function DronesPage() {
         {drones.map((d) => (
           <DroneCard key={d.id} drone={d} />
         ))}
+      </div>
+
+      {/* INSPECTION CONSOLE — AI analysis / evidence / mission timeline */}
+      <div className="mt-4">
+        <InspectionConsole />
       </div>
 
       <Card className="mt-4">

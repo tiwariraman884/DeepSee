@@ -40,8 +40,8 @@ export function PollutionForecast() {
     <Card className="p-4 bg-black/40 border-slate-800">
       <CardHeader
         icon={<TrendingUp className="w-5 h-5 text-purple-400" />}
-        title="AI Spread Forecast"
-        subtitle="Predict 6-hour trajectory for active pollution events."
+        title="6-Hour Pollution Severity Projection"
+        subtitle="Heuristic projection for active pollution events — not an ocean-current transport model."
       />
       <div className="mt-4 space-y-4">
         <div className="grid grid-cols-2 gap-4">
@@ -76,7 +76,7 @@ export function PollutionForecast() {
           className="w-full bg-purple-600 hover:bg-purple-500 text-white p-2 rounded text-sm font-medium transition-colors flex items-center justify-center gap-2"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wind className="w-4 h-4" />}
-          Generate 6h Forecast
+          Generate 6h Projection
         </button>
 
         <AnimatePresence>

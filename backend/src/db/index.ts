@@ -204,7 +204,7 @@ function runMigrations(db: any): void {
     -- ── Drone Inspection Missions ─────────────────────────────────────────
     -- Lifecycle for the anomaly-response workflow:
     --   en_route → arrived → inspecting → complete | aborted
-    -- Distinct from `missions` (planned survey work); these are reactive
+    -- Distinct from 'missions' (planned survey work); these are reactive
     -- inspection flights triggered by a detected anomaly.
     CREATE TABLE IF NOT EXISTS drone_inspections (
       id                TEXT PRIMARY KEY,
@@ -244,4 +244,13 @@ function runMigrations(db: any): void {
     );
     CREATE INDEX IF NOT EXISTS idx_evidence_insp ON inspection_evidence(inspection_id);
   `);
+
+  // ── Additive migrations for the inspection upgrade ──────────────────────
+  // New columns on an existing table (SQLite supports ADD COLUMN only).
+  const addColumn = (table: string, ddl: string) => {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`); } catch { /* already exists */ }
+  };
+  addColumn("drone_inspections", "selection_reason TEXT");
+  addColumn("drone_inspections", "distance_km REAL");
+  addColumn("drone_inspections", "progress_label TEXT");
 }
