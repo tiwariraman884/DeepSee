@@ -53,12 +53,12 @@ Oceans cover more than 70% of Earth's surface, yet over 80% of deep-sea environm
 - **Mission Control**: Tracks active drone units (e.g. `AquaDrone-Alpha`) across sectors.
 - **Emergency Dispatch**: Computes nearest available drone route, estimated time of arrival (ETA), and streams telemetry for hotspot inspection.
 
-### 3. 📈 AI Pollution Spread & 6-Hour Trajectory Forecast
-- **Model**: Polynomial non-linear drift model factoring in initial severity and environmental trends (`increasing`, `stable`, `decreasing`).
-- **Visual Trajectory**: Renders hour-by-hour (+1h to +6h) predictive severity progression curves.
+### 3. 📈 Pollution Spread & 6-Hour Trajectory Forecast
+- **Method**: Deterministic trend projection (`forecast_spread.py`) — a seeded, reproducible hour-by-hour projection that combines the trend slope (`increasing` +0.15/h, `stable` +0.02/h, `decreasing` −0.12/h) with a bounded seasonal wobble. It is a transparent heuristic, **not** a trained model — no regression is fitted.
+- **Visual Trajectory**: Renders hour-by-hour (+1h to +6h) projected severity progression curves.
 
 ### 4. 🐟 Marine Species Computer Vision Classifier
-- **Model**: Multi-channel color histogram and spatial pixel feature classifier for marine biodiversity.
+- **Model**: Transfer-learned **MobileNetV3-Small** (ImageNet-pretrained, 224×224) — see [Machine Learning Pipelines](#-machine-learning-pipelines) for the full accuracy story.
 - **Interactive Vision UI**:
   - Drag-and-drop or file upload for custom marine wildlife photos.
   - **1-Click Test Presets**: Test instantly with real samples (Hawksbill Sea Turtle, Blue Whale, Clownfish, Hammerhead Shark).
@@ -98,7 +98,7 @@ graph TD
 
     subgraph ML ["Python ML Intelligence Engine"]
         IFModel["Isolation Forest (predict.py)"]
-        SpreadModel["Spread Regressor (forecast_spread.py)"]
+        SpreadModel["Trend Projection (forecast_spread.py)"]
         CVModel["Species Classifier (classify_species.py)"]
     end
 
@@ -148,7 +148,7 @@ For the CPU-only PyTorch build (no NVIDIA GPU required):
 | Task | Model | Input Features | Output |
 |---|---|---|---|
 | **Water Anomaly Detection** | Isolation Forest (`anomaly_model.pkl`) | Temperature (°C), pH Level, Salinity (PSU), Dissolved Oxygen (mg/L), Turbidity (NTU) | `isAnomaly: boolean`, `status: string` |
-| **Pollution Spread Forecast** | Polynomial Spread Regressor (`forecast_spread.py`) | Current Severity (1-10), Trend (`increasing`, `stable`, `decreasing`) | 6-hour hourly projection array `[{hour, label, severity}]` |
+| **Pollution Spread Forecast** | Deterministic trend projection (`forecast_spread.py`, seeded — reproducible) | Current Severity (1-10), Trend (`increasing`, `stable`, `decreasing`) | 6-hour hourly projection array `[{hour, label, severity}]` |
 | **Species Vision Classifier** | Transfer-learned MobileNetV3-Small (`species_classifier.pt`) | Base64-encoded RGB Image (224x224, ImageNet-normalised) | `species: string`, `confidence: float (0.0 - 1.0)`, `label`, `displayName`, `covered`, `matches[]` |
 
 ---
@@ -370,7 +370,9 @@ DeepSea/
 │   ├── ocean_sensor_data.csv         # Physical-chemical training dataset
 │   ├── predict.py                    # Anomaly detector execution script
 │   ├── predict_server.py             # Resident anomaly inference server
-│   ├── forecast_spread.py            # Spread trajectory regressor
+│   ├── forecast_spread.py            # Seeded 6-hour trend projection (heuristic)
+│   ├── evaluate_anomaly.py           # Honest synthetic-validation report for the anomaly model
+│   ├── simulate_live_data.py         # Live sensor-data simulator for the pipeline
 │   ├── classify_species.py           # Species CV classification (one-shot)
 │   ├── classify_species_server.py    # Resident species inference server
 │   ├── download_sea_animals.py       # Fetches the Kaggle species image dataset
@@ -420,9 +422,22 @@ DeepSea/
 
 ### Running the Development Environment
 
-Start both frontend and backend dev servers concurrently:
+Start the frontend and backend dev servers in **separate terminals** (they are
+independent processes — the root `dev` script starts the frontend only):
+
 ```bash
-npm run dev
+npm run dev:frontend   # Next.js dashboard  → http://localhost:3000
+npm run dev:backend    # Express API + SSE → http://localhost:5000
+```
+
+Backend tests (34+ tests incl. the full anomaly → dispatch → inspection E2E):
+```bash
+npm --prefix backend test
+```
+
+Anomaly model evaluation (synthetic-validation metrics, honestly labelled):
+```bash
+python ml/evaluate_anomaly.py
 ```
 
 - 🌐 **Frontend Dashboard**: [http://localhost:3000](http://localhost:3000)

@@ -5,7 +5,16 @@ import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 
 const router = Router();
-const SECRET = process.env.AUTH_SECRET || process.env.SESSION_SECRET || "deepsea-guardian-very-secret-key-that-is-32-chars-long";
+
+// Signing secret — MUST come from the environment in production. The hardcoded
+// default exists only so local development keeps working out of the box.
+const DEV_FALLBACK_SECRET = "deepsea-guardian-very-secret-key-that-is-32-chars-long";
+const SECRET =
+  process.env.AUTH_SECRET || process.env.SESSION_SECRET ||
+  (process.env.NODE_ENV === "production" ? undefined : DEV_FALLBACK_SECRET);
+if (!SECRET) {
+  throw new Error("AUTH_SECRET (or SESSION_SECRET) must be set in production");
+}
 
 function b64url(data: string): string {
   return Buffer.from(data).toString("base64url");
@@ -66,8 +75,11 @@ router.post("/login", async (req, res) => {
   try {
     const db = getDb();
 
-    // 1. Try the hardcoded admin shortcut
-    if (email === "admin@deepsea.io" && password === "DeepSea2026!") {
+    // 1. Try the admin shortcut (credentials from env in production; the demo
+    //    pair remains available in development only).
+    const adminEmail = process.env.ADMIN_EMAIL ?? "admin@deepsea.io";
+    const adminPassword = process.env.ADMIN_PASSWORD ?? "DeepSea2026!";
+    if (email === adminEmail && password === adminPassword) {
       let user = db.prepare("SELECT * FROM users WHERE email = ?").get(email) as any;
       if (!user) {
         const now = new Date().toISOString();

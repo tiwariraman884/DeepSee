@@ -38,6 +38,28 @@ router.get("/", (req, res) => {
   }
 });
 
+// ── GET /api/drones/inspections — past anomaly-response missions ─────────
+router.get("/inspections/history", (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 20, 100);
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT * FROM drone_inspections ORDER BY started_at DESC LIMIT ?`
+    ).all(limit) as any[];
+    const mapped = rows.map((r) => ({
+      id: r.id, droneId: r.drone_id, droneName: r.drone_name,
+      sensorName: r.sensor_name, phase: r.phase, severity: r.severity,
+      progress: r.progress, targetLat: r.target_lat, targetLng: r.target_lng,
+      startedAt: r.started_at, completedAt: r.completed_at,
+      summary: r.summary,
+      findings: r.threat_json ? JSON.parse(r.threat_json) : [],
+    }));
+    return res.json({ inspections: mapped, total: mapped.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/:id", (req, res) => {
   try {
     const db = getDb();

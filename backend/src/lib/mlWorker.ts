@@ -45,6 +45,7 @@ export interface MLPredictionResult {
 class MLWorker extends EventEmitter {
   private process: ChildProcessWithoutNullStreams | null = null;
   private ready = false;
+  private startPromise: Promise<void> | null = null;
   private pendingRequests = new Map<string, {
     resolve: (val: MLPredictionResult) => void;
     reject: (err: Error) => void;
@@ -158,10 +159,31 @@ class MLWorker extends EventEmitter {
     });
   }
 
+  /**
+   * Ensure the Python inference server is running.
+   * Lazy-start: server.ts calls start() at boot, but tests / library consumers
+   * that use the routes directly get an automatic spawn on first predict()
+   * instead of a silent `status: "error"` reply.
+   */
+  ensureStarted(): Promise<void> {
+    if (this.ready) return Promise.resolve();
+    if (!this.startPromise) {
+      this.startPromise = this.start().finally(() => { this.startPromise = null; });
+    }
+    return this.startPromise;
+  }
+
   /** Predict (async, sub-5ms once model is in RAM) */
-  predict(input: MLPredictionInput, timeoutMs = 5000): Promise<MLPredictionResult> {
+  async predict(input: MLPredictionInput, timeoutMs = 5000): Promise<MLPredictionResult> {
     if (!this.ready || !this.process) {
-      return Promise.resolve({ isAnomaly: false, score: 0, status: "error", latency_ms: 0, message: "ML worker not ready" });
+      try {
+        await this.ensureStarted();
+      } catch (err: any) {
+        return { isAnomaly: false, score: 0, status: "error", latency_ms: 0, message: `ML worker failed to start: ${err.message}` };
+      }
+      if (!this.ready || !this.process) {
+        return { isAnomaly: false, score: 0, status: "error", latency_ms: 0, message: "ML worker not ready" };
+      }
     }
 
     return new Promise((resolve, reject) => {

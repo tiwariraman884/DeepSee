@@ -24,6 +24,31 @@ export interface DronePositionInfo {
   lng: number;
   status: string;
   battery?: number;
+  inspectionId?: string;
+  phase?: string;
+  progress?: number;
+}
+
+/** Live state of an anomaly-response inspection mission. */
+export interface InspectionState {
+  id: string;
+  phase: string;
+  progress: number;
+  progressLabel?: string;
+  droneId: string;
+  droneName: string;
+  location: string;
+  severity?: string;
+  summary?: string;
+  completedAt?: string;
+  startedAt?: string;
+  /** Dispatch decision metadata (deterministic selection, explainable). */
+  selection?: { distanceKm: number; etaDisplay: string; reason: string };
+  /** Species-AI result from the simulated frame analysis (real model, simulated frame). */
+  aiDetection?: { label: string; confidence: number; conservation?: string; simulation: boolean };
+  findings: { kind: string; label: string; confidence: number; detail: string }[];
+  /** Mission timeline entries (newest last). */
+  timeline: { time: string; message: string }[];
 }
 
 export interface HorizonProjection {
@@ -58,6 +83,8 @@ interface AppState {
   // Global drone tracking — persists across page navigation
   droneDispatch: DroneDispatchInfo | null;
   dronePositions: Record<string, DronePositionInfo>;
+  // Live anomaly-response inspection (one at a time is enough for the demo UI)
+  inspection: InspectionState | null;
   setRegion: (region: string | null) => void;
   setTimeHorizon: (h: TimeHorizon) => void;
   setDateRange: (range: string) => void;
@@ -65,6 +92,13 @@ interface AppState {
   addAlert: (alert: Alert) => void;
   setDroneDispatch: (d: DroneDispatchInfo | null) => void;
   updateDronePosition: (d: DronePositionInfo) => void;
+  setInspectionPhase: (id: string, phase: string, progress?: number) => void;
+  setInspectionMeta: (id: string, meta: Partial<Pick<InspectionState, "droneId" | "droneName" | "location" | "severity" | "summary" | "completedAt">>) => void;
+  addInspectionFinding: (id: string, finding: { kind: string; label: string; confidence: number; detail: string }) => void;
+  setInspectionSelection: (id: string, sel: { distanceKm: number; etaDisplay: string; reason: string; startedAt: string }) => void;
+  setInspectionProgress: (id: string, progress: number, label: string) => void;
+  setAiDetection: (id: string, d: { label: string; confidence: number; conservation?: string; simulation: boolean }) => void;
+  addInspectionTimeline: (id: string, message: string) => void;
   getSummary: () => {
     oceanHealth: number;
     pollutionHotspots: number;
@@ -131,6 +165,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   _loaded: false,
   droneDispatch: null,
   dronePositions: {},
+  inspection: null,
 
   setRegion: (region) => set({ selectedRegion: region }),
   setTimeHorizon: (h) => set({ timeHorizon: h }),
@@ -150,6 +185,91 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   setDroneDispatch: (d) => set({ droneDispatch: d }),
   updateDronePosition: (d) => set((state) => ({ dronePositions: { ...state.dronePositions, [d.id]: d } })),
+
+  setInspectionPhase: (id, phase, progress) =>
+    set((state) => {
+      const prev = state.inspection && state.inspection.id === id ? state.inspection : null;
+      return {
+        inspection: {
+          id,
+          phase,
+          progress: progress ?? prev?.progress ?? (phase === "arrived" ? 100 : 0),
+          progressLabel: prev?.progressLabel,
+          droneId: prev?.droneId ?? "",
+          droneName: prev?.droneName ?? "",
+          location: prev?.location ?? "",
+          severity: prev?.severity,
+          summary: prev?.summary,
+          completedAt: prev?.completedAt,
+          startedAt: prev?.startedAt,
+          selection: prev?.selection,
+          aiDetection: prev?.aiDetection,
+          // Findings belong to their own mission — a new inspection starts with a
+          // clean feed, otherwise the previous mission's overlays leak into transit.
+          findings: prev?.findings ?? [],
+          timeline: prev?.timeline ?? [],
+        },
+      };
+    }),
+
+  setInspectionMeta: (id, meta) =>
+    set((state) => ({
+      inspection: state.inspection && state.inspection.id === id
+        ? { ...state.inspection, ...meta }
+        : state.inspection,
+    })),
+
+  addInspectionFinding: (id, finding) =>
+    set((state) => {
+      if (!state.inspection || state.inspection.id !== id) return {};
+      if (state.inspection.findings.some((f) => f.label === finding.label)) return {}; // de-dupe replayed SSE
+      return { inspection: { ...state.inspection, findings: [...state.inspection.findings, finding] } };
+    }),
+
+  setInspectionSelection: (id, sel) =>
+    set((state) => ({
+      inspection: state.inspection && state.inspection.id === id
+        ? { ...state.inspection, selection: { distanceKm: sel.distanceKm, etaDisplay: sel.etaDisplay, reason: sel.reason }, startedAt: sel.startedAt }
+        : state.inspection,
+    })),
+
+  setInspectionProgress: (id, progress, label) =>
+    set((state) => {
+      if (!state.inspection || state.inspection.id !== id) return {};
+      if (state.inspection.progressLabel === label) return {}; // de-dupe replayed SSE
+      return {
+        inspection: {
+          ...state.inspection,
+          progress,
+          progressLabel: label,
+          timeline: [...state.inspection.timeline, { time: new Date().toISOString(), message: `${label} (${progress}%)` }].slice(-50),
+        },
+      };
+    }),
+
+  setAiDetection: (id, d) =>
+    set((state) => {
+      if (!state.inspection || state.inspection.id !== id) return {};
+      return {
+        inspection: {
+          ...state.inspection,
+          aiDetection: d,
+          timeline: [...state.inspection.timeline, { time: new Date().toISOString(), message: `AI detection: ${d.label} (${d.confidence}%)` }].slice(-50),
+        },
+      };
+    }),
+
+  addInspectionTimeline: (id, message) =>
+    set((state) => {
+      if (!state.inspection || state.inspection.id !== id) return {};
+      if (state.inspection.timeline.some((t) => t.message === message)) return {}; // de-dupe replayed SSE
+      return {
+        inspection: {
+          ...state.inspection,
+          timeline: [...state.inspection.timeline, { time: new Date().toISOString(), message }].slice(-50),
+        },
+      };
+    }),
 
   fetchSummary: async () => {
     if (get()._loaded) return;
@@ -226,5 +346,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     return project(timeHorizon, _pollution, _species, _sensors, baseline);
   },
 }));
+
+// Debug/QA handle — lets browser tests assert on live store state.
+if (typeof window !== "undefined") {
+  (window as any).__useAppStore = useAppStore;
+}
 
 
