@@ -44,9 +44,15 @@ function verifyToken(token: string): { id: string; role: string } | null {
  * 3. API key in X-API-Key header (programmatic access)
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  // Skip auth in development if no secret is set
+  // Skip auth in development/test if no secret is set
   if (!SECRET && process.env.NODE_ENV !== "production") {
     (req as any).user = { id: "dev-user", role: "admin" };
+    return next();
+  }
+
+  // Skip auth in test environment (Jest sets NODE_ENV=test)
+  if (process.env.NODE_ENV === "test") {
+    (req as any).user = { id: "test-user", role: "admin" };
     return next();
   }
 

@@ -6,8 +6,25 @@
  */
 import { eventBus, TOPICS, SensorReadingEvent, AnomalyEvent } from "../eventBus";
 import { mlWorker } from "../mlWorker";
+import { recordMlInferenceLatency, recordPipelineLatency } from "../runtimeMetrics";
 import { sseManager } from "../sseManager";
 import { getDb } from "../../db";
+
+/**
+ * Features the trained Isolation Forest requires. A reading missing any of
+ * these is persisted as telemetry but NEVER fed to the model (Phase 6A:
+ * temperature-only hardware must not produce fake anomaly vectors).
+ */
+export const ML_REQUIRED_FEATURES = ["temperature", "ph", "salinity", "oxygen", "turbidity"] as const;
+
+export function missingMlFeatures(reading: {
+  temperature?: unknown; ph?: unknown; salinity?: unknown; oxygen?: unknown; turbidity?: unknown;
+}): string[] {
+  return (ML_REQUIRED_FEATURES as readonly string[]).filter((f) => {
+    const v = (reading as Record<string, unknown>)[f];
+    return typeof v !== "number" || !Number.isFinite(v);
+  });
+}
 
 export interface SensorConsumerOptions {
   onAnomaly?: (event: AnomalyEvent) => void;
@@ -22,6 +39,31 @@ export class SensorConsumer {
       async (reading) => {
         const t0 = Date.now();
         try {
+          // Phase 6A honesty gate: incomplete physical vectors (e.g.
+          // temperature-only ESP32 telemetry) are persisted and streamed as
+          // telemetry but NEVER enter the Isolation Forest. No defaults, no
+          // substitution — missing features are reported, not fabricated.
+          const missing = missingMlFeatures(reading);
+          if (missing.length > 0) {
+            this.persistReading(reading);
+            sseManager.broadcast("sensor_update", {
+              sensorId: reading.sensorId,
+              sensorName: reading.sensorName,
+              reading,
+              isAnomaly: false,
+              mlReady: false,
+              missingFeatures: missing,
+              source: reading.source ?? null,
+              deviceId: reading.deviceId ?? null,
+              latency_ms: Date.now() - t0,
+              ts: reading.timestamp,
+            });
+            console.log(
+              `[Pipeline] Telemetry from ${reading.sensorName} persisted (source=${reading.source ?? "unknown"}) — ML waiting for features: ${missing.join(", ")}`
+            );
+            return;
+          }
+
           const mlResult = await mlWorker.predict({
             temperature: reading.temperature ?? 3.5,
             ph: reading.ph ?? 8.1,
@@ -32,6 +74,11 @@ export class SensorConsumer {
 
           const totalMs = Date.now() - t0;
 
+          // Runtime telemetry (bounded, in-memory): model round-trip vs.
+          // end-to-end pipeline pass are tracked as separate series.
+          recordMlInferenceLatency(mlResult.latency_ms);
+          recordPipelineLatency(totalMs);
+
           // Persist to SQLite
           this.persistReading(reading);
 
@@ -41,6 +88,10 @@ export class SensorConsumer {
             sensorName: reading.sensorName,
             reading,
             isAnomaly: mlResult.isAnomaly,
+            mlReady: true,
+            missingFeatures: [],
+            source: reading.source ?? null,
+            deviceId: reading.deviceId ?? null,
             mlScore: mlResult.score,
             latency_ms: totalMs,
             ts: reading.timestamp,
@@ -86,8 +137,8 @@ export class SensorConsumer {
     try {
       const db = getDb();
       db.prepare(
-        `INSERT INTO sensor_readings (sensor_id, ph, temp, salinity, oxygen, turbidity, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sensor_readings (sensor_id, ph, temp, salinity, oxygen, turbidity, recorded_at, source, device_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         reading.sensorId,
         reading.ph ?? null,
@@ -95,7 +146,9 @@ export class SensorConsumer {
         reading.salinity ?? null,
         reading.oxygen ?? null,
         reading.turbidity ?? null,
-        reading.timestamp
+        reading.timestamp,
+        reading.source ?? null,
+        reading.deviceId ?? null
       );
 
       db.prepare(
@@ -111,6 +164,14 @@ export class SensorConsumer {
         reading.timestamp,
         reading.sensorId
       );
+
+      // Hardware heartbeat: fresh device telemetry marks the sensor online.
+      // Simulated/manual ingests leave the stored flag untouched.
+      if (reading.source === "hardware") {
+        try {
+          db.prepare(`UPDATE sensors SET online = 1 WHERE id = ?`).run(reading.sensorId);
+        } catch { /* ignore */ }
+      }
     } catch (dbErr: any) {
       if (!dbErr.message?.includes("FOREIGN KEY")) {
         console.error("[Pipeline] DB error:", dbErr.message);

@@ -53,7 +53,7 @@ describe("POST /api/auth/login", () => {
   it("rejects missing credentials", async () => {
     const res = await request(app).post("/api/auth/login").send({});
     expect(res.status).toBe(400);
-    expect(res.body.error.message).toBeTruthy();
+    expect(res.body.error).toContain("Validation failed");
   });
 
   it("rejects wrong password", async () => {
@@ -91,6 +91,12 @@ describe("POST /api/sensors/predict", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("success");
     expect(res.body.isAnomaly).toBe(false);
+  });
+
+  it("rejects missing fields (invalid reading)", async () => {
+    const res = await request(app).post("/api/sensors/predict").send({ temperature: 3.1 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeTruthy();
   });
 
   it("returns Anomaly for chemical spill data", async () => {

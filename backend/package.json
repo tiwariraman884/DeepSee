@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "vision:camera:test": "tsx scripts/vision-camera-test.ts",
     "test": "jest --config jest.config.json --verbose --maxWorkers 1"
   },
   "keywords": [],

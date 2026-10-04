@@ -34,6 +34,16 @@ export interface SensorReadingEvent {
   oxygen?: number;
   turbidity?: number;
   timestamp: string;
+  /**
+   * Telemetry provenance (Phase 6A/6B). Optional for backward compatibility:
+   *   "simulated"     — controlled Emergency Scenario fixture
+   *   "hardware"      — physical device telemetry (deviceId set)
+   *   "hardware_test" — firmware SENSOR_TEST_MODE vectors (bench only,
+   *                     explicitly marked, never real hardware)
+   *   "manual"        — user/browser-submitted reading
+   */
+  source?: "simulated" | "hardware" | "hardware_test" | "manual";
+  deviceId?: string;
 }
 
 export interface AnomalyEvent {
@@ -87,8 +97,32 @@ export const TOPICS = {
   ML_ANOMALY:      "ml.anomaly",
   ALERT_NEW:       "alert.new",
   DRONE_DISPATCH:  "drone.dispatch",
+  DRONE_INSPECTION_READY: "drone.inspection_ready",
+  DRONE_INSPECTION_COMPLETED: "drone.inspection_completed",
+  VISION_FRAME_CAPTURED: "vision.frame.captured",
+  VISION_FRAME_PROCESSED: "vision.frame.processed",
+  VISION_INFERENCE_COMPLETED: "vision.inference.completed",
+  VISION_EVIDENCE_CREATED: "vision.evidence.created",
   SSE_BROADCAST:   "sse.broadcast",
 } as const;
+
+// ─── Internal inspection-ready payload (DroneDispatcher → InspectionSimulator) ─
+export interface InspectionReadyEvent {
+  inspectionId: string;
+  droneId: string;
+  droneName: string;
+  sensorName: string;
+  anomalyScore: number;
+  targetLat: number;
+  targetLng: number;
+}
+
+// ─── Internal inspection-completed payload (InspectionSimulator → DroneDispatcher) ─
+export interface InspectionCompletedEvent {
+  inspectionId: string;
+  droneId: string;
+  timestamp: string;
+}
 
 // ─── The Bus ──────────────────────────────────────────────────────────────────
 const MAX_QUEUE_SIZE = 10_000;

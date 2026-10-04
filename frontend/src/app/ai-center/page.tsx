@@ -5,6 +5,7 @@ import { DashboardShell } from "@/components/layout/DashboardShell";
 import { LivePipelineStatus } from "@/components/pipeline/LivePipelineStatus";
 import { AnomalyDetector } from "@/components/ai/AnomalyDetector";
 import { PollutionForecast } from "@/components/ai/PollutionForecast";
+import { EmergencyScenario } from "@/components/domain/EmergencyScenario";
 
 export default function AICenterPage() {
   const downloadReport = () => {
@@ -29,6 +30,8 @@ export default function AICenterPage() {
         </div>
 
         <LivePipelineStatus />
+
+        <EmergencyScenario />
 
         <div className="flex flex-col gap-6">
           <div className="w-full">

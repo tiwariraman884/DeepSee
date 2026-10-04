@@ -64,13 +64,21 @@ export interface AiDetection {
 }
 
 /**
- * Analyse one sample frame with the real species classifier.
+ * Analyse one frame with the real species classifier.
+ * When `imageB64` is provided (normalized vision-pipeline bytes) it is used
+ * directly; otherwise one local sample frame is picked (legacy behavior).
  * Returns null when the worker is unavailable — callers must degrade to
  * heuristic findings only rather than fabricating a detection.
  */
-export async function analyseFrame(): Promise<AiDetection | null> {
-  const frame = pickSampleFrame();
-  if (!frame) return null;
+export async function analyseFrame(imageB64?: string, frameFile?: string): Promise<AiDetection | null> {
+  let file = frameFile ?? null;
+  let base64 = imageB64 ?? null;
+  if (!base64) {
+    const frame = pickSampleFrame();
+    if (!frame) return null;
+    file = frame.file;
+    base64 = frame.base64;
+  }
 
   let raw: any = null;
   try {
@@ -78,7 +86,7 @@ export async function analyseFrame(): Promise<AiDetection | null> {
       try { await speciesWorker.start(); } catch { /* fall through */ }
     }
     if (!speciesWorker.isReady) return null;
-    raw = await speciesWorker.classify(frame.base64);
+    raw = await speciesWorker.classify(base64);
   } catch {
     return null;
   }
@@ -114,9 +122,9 @@ export async function analyseFrame(): Promise<AiDetection | null> {
     kind: "marine_species",
     label: displayName,
     confidence,
-    detail: `Potential protected species detected in inspection frame (${frame.file})`,
+    detail: `Potential protected species detected in inspection frame (${file ?? "pipeline-frame"})`,
     simulation: true,
     conservation,
-    frameFile: frame.file,
+    frameFile: file ?? undefined,
   };
 }

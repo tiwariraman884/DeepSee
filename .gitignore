@@ -76,3 +76,8 @@ lerna-debug.log*
 .DS_Store
 *.pem
 Thumbs.db
+
+# Hardware secrets (Phase 6A — never commit real credentials)
+hardware/esp32/src/config.h
+hardware/**/secrets.h
+hardware/**/*credentials*

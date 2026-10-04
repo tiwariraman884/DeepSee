@@ -17,6 +17,7 @@ import {
   Info,
   User,
   Cpu,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserProfileCard } from "@/components/profile/UserProfileCard";
@@ -31,6 +32,7 @@ const nav = [
   { href: "/drones", label: "Drone Center", icon: Radio },
   { href: "/alerts", label: "Alerts", icon: AlertTriangle },
   { href: "/reports", label: "Reports", icon: FileBarChart },
+  { href: "/system-intelligence", label: "System Intelligence", icon: Activity },
   { href: "/assistant", label: "AI Assistant", icon: Bot },
   { href: "/innovation", label: "Innovation", icon: Sparkles },
   { href: "/profile", label: "Profile", icon: User },

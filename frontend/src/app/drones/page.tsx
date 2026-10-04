@@ -14,10 +14,13 @@ import { cn } from "@/lib/utils";
 import type { Drone, Mission } from "@/types";
 import { OceanMap } from "@/components/map/OceanMapLazy";
 import { useAppStore } from "@/store/useAppStore";
+import { useActiveMissionSync } from "@/hooks/useActiveMissionSync";
 // Note: useSSEStream is mounted in the layout — no need to mount it here again.
 // We read drone state directly from the global Zustand store.
 
 export default function DronesPage() {
+  // Late joiners (tab opened mid-mission) hydrate the persisted mission.
+  useActiveMissionSync();
   const [drones, setDrones] = useState<Drone[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
   const droneDispatch = useAppStore((s) => s.droneDispatch);
@@ -35,20 +38,23 @@ export default function DronesPage() {
       .catch(() => {});
   }, []);
 
-  // Build map points — SSE live position takes priority over static DB position
+  // Build map points — SSE live position takes priority over static DB position.
+  // Status is resolved from the live stream first: a dispatched drone whose REST
+  // row still says "offline"/"idle" must NOT be filtered off the map.
   const mapPoints = drones
-    .filter((d) => d.status !== "offline")
-    .map((d) => {
-      const livePos = dronePositions[d.id];
+    .map((d) => ({ d, livePos: dronePositions[d.id] }))
+    .filter(({ d, livePos }) => (livePos?.status ?? d.status) !== "offline")
+    .map(({ d, livePos }) => {
       const finalPos = livePos
         ? { lat: livePos.lat, lng: livePos.lng }
         : d.position;
+      const status = livePos?.status ?? d.status;
       const isDispatched = !!livePos && livePos.status === "active";
 
       return {
         id: d.id,
         coordinates: finalPos,
-        color: isDispatched ? "#ff6b35" : d.status === "active" ? "#22e6a3" : d.status === "charging" ? "#fbbf24" : "#43d1ff",
+        color: isDispatched ? "#ff6b35" : status === "active" ? "#22e6a3" : status === "charging" ? "#fbbf24" : "#43d1ff",
         radius: isDispatched ? 14 : 8,
         label: isDispatched ? `🚁 ${d.name} — DISPATCHED` : d.name,
         popup: (
@@ -60,6 +66,19 @@ export default function DronesPage() {
         ),
       };
     });
+
+  // Drones present only in the live stream (dispatched before the fleet snapshot
+  // loaded) still need a marker, otherwise the dispatched unit vanishes.
+  const knownDroneIds = new Set(drones.map((d) => d.id));
+  const liveOnlyPoints = Object.values(dronePositions)
+    .filter((p) => !knownDroneIds.has(p.id) && p.status !== "offline")
+    .map((p) => ({
+      id: p.id,
+      coordinates: { lat: p.lat, lng: p.lng },
+      color: p.status === "active" ? "#ff6b35" : "#43d1ff",
+      radius: p.status === "active" ? 14 : 8,
+      label: p.status === "active" ? `🚁 ${p.name ?? p.id} — DISPATCHED` : p.name ?? p.id,
+    }));
 
   // Anomaly target marker (red pulsing point)
   const anomalyMarker =
@@ -82,9 +101,9 @@ export default function DronesPage() {
         ]
       : [];
 
-  const allMapPoints = [...mapPoints, ...anomalyMarker];
+  const allMapPoints = [...mapPoints, ...liveOnlyPoints, ...anomalyMarker];
 
-  // Mission path: from drone origin → anomaly target
+  // Mission path: from drone origin → live position → anomaly target
   const missionRoutes = (() => {
     const routes: { id: string; path: { lat: number; lng: number }[]; color?: string }[] = [];
 
@@ -99,15 +118,20 @@ export default function DronesPage() {
       const currentLat = liveDrone?.lat ?? droneDispatch.originLat;
       const currentLng = liveDrone?.lng ?? droneDispatch.originLng;
 
+      // Prefer the backend-computed maritime searoute (full curve) when the
+      // dispatch carried it; otherwise fall back to the straight 3-point
+      // origin → current → target segment.
+      const seaPath = droneDispatch.path;
       routes.push({
         id: "mission-path",
-        path: droneDispatch.path
-          ? droneDispatch.path
-          : [
-              { lat: droneDispatch.originLat, lng: droneDispatch.originLng },
-              { lat: currentLat, lng: currentLng },
-              { lat: droneDispatch.targetLat, lng: droneDispatch.targetLng },
-            ],
+        path:
+          seaPath && seaPath.length >= 2
+            ? seaPath
+            : [
+                { lat: droneDispatch.originLat, lng: droneDispatch.originLng },
+                { lat: currentLat, lng: currentLng },
+                { lat: droneDispatch.targetLat, lng: droneDispatch.targetLng },
+              ],
         color: "#ff6b35",
       });
     }

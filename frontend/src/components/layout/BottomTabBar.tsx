@@ -18,6 +18,7 @@ import {
   Info,
   X,
   Cpu,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ const more = [
   { href: "/risk", label: "Risk Engine", icon: Brain },
   { href: "/alerts", label: "Alerts", icon: AlertTriangle },
   { href: "/reports", label: "Reports", icon: FileBarChart },
+  { href: "/system-intelligence", label: "System Intel", icon: Activity },
   { href: "/assistant", label: "AI Assistant", icon: Bot },
   { href: "/innovation", label: "Innovation", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings },
