@@ -11,6 +11,7 @@
 import { SensorConsumer } from "./pipeline/sensorConsumer";
 import { DroneDispatcher } from "./pipeline/droneDispatcher";
 import { InspectionSimulator } from "./pipeline/inspectionSimulator";
+import { visionPipeline } from "./vision/pipeline";
 import { sseManager } from "./sseManager";
 
 let isInitialized = false;
@@ -36,10 +37,17 @@ export function initSensorPipeline(): void {
   inspectionSimulator = new InspectionSimulator();
   inspectionSimulator.start();
 
-  // Wire dispatcher → inspection simulator via SSE events
-  // (In a real system this would be another EventBus subscription)
-
   console.log("[Pipeline] Sensor pipeline active — Consumer → Dispatcher → Inspector");
+}
+
+/** Get the drone dispatcher instance (for demo scenario checks). */
+export function getDroneDispatcher(): DroneDispatcher | null {
+  return droneDispatcher;
+}
+
+/** Telemetry: is the three-stage pipeline currently initialized and subscribed? */
+export function isSensorPipelineActive(): boolean {
+  return isInitialized && sensorConsumer !== null && droneDispatcher !== null && inspectionSimulator !== null;
 }
 
 /** Test/QA hook: full teardown of the pipeline worker. */
@@ -56,4 +64,15 @@ export function shutdownSensorPipelineForTests(): void {
 /** Test/QA hook: release the single-mission guard. */
 export function resetActiveInspectionGuard(): void {
   droneDispatcher?.resetGuard();
+}
+
+/**
+ * Test-only: reset active mission state and cancel all pending timers
+ * across DroneDispatcher and InspectionSimulator. Does NOT shut down the
+ * pipeline — just clears mission lifecycle state so the next test starts clean.
+ */
+export function resetSensorPipelineForTests(): void {
+  droneDispatcher?.resetForTests();
+  inspectionSimulator?.resetForTests();
+  visionPipeline.resetForTests();
 }

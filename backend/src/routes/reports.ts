@@ -2,6 +2,13 @@ import { Router } from "express";
 import { getDb } from "../db";
 import PDFDocument from "pdfkit";
 import { requireAuth } from "../lib/authMiddleware";
+import {
+  getOrCreateIncidentReport,
+  listIncidentReports,
+  InspectionNotFoundError,
+  InspectionIncompleteError,
+} from "../lib/incidentReport";
+import { buildIncidentReportPdf } from "../lib/incidentReportPdf";
 
 const router = Router();
 
@@ -98,6 +105,73 @@ router.get("/", requireAuth, (req, res) => {
     return res.json({ reports: mapped, total: mapped.length });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Automated Incident Reports (Step 4) ─────────────────────────────────────
+// Incident-specific snapshots bound to ONE completed drone_inspections record.
+// Lazy generation: first GET assembles from persisted pipeline data and stores
+// the snapshot (UNIQUE inspection_id → repeat calls return the same report).
+
+const INCIDENT_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+router.get("/incidents", requireAuth, (req, res) => {
+  try {
+    const { reports, total } = listIncidentReports({
+      limit: req.query.limit as string,
+      severity: req.query.severity as string,
+    });
+    return res.json({ reports, total });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/incidents/:inspectionId", requireAuth, (req, res) => {
+  const inspectionId = String(req.params.inspectionId ?? "");
+  if (!INCIDENT_ID_RE.test(inspectionId)) {
+    return res.status(400).json({ error: "Invalid inspection ID." });
+  }
+  try {
+    const generatedBy = (req as any).user?.id ?? null;
+    const { report, created } = getOrCreateIncidentReport(inspectionId, generatedBy);
+    return res.json({ report, cached: !created });
+  } catch (err: any) {
+    if (err instanceof InspectionNotFoundError) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof InspectionIncompleteError) {
+      return res.status(409).json({ error: err.message });
+    }
+    return res.status(500).json({ error: "Failed to generate incident report" });
+  }
+});
+
+router.get("/incidents/:inspectionId/pdf", requireAuth, async (req, res) => {
+  const inspectionId = String(req.params.inspectionId ?? "");
+  if (!INCIDENT_ID_RE.test(inspectionId)) {
+    return res.status(400).json({ error: "Invalid inspection ID." });
+  }
+  try {
+    const generatedBy = (req as any).user?.id ?? null;
+    const { report } = getOrCreateIncidentReport(inspectionId, generatedBy);
+    const pdf = await buildIncidentReportPdf(report);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="incident-${inspectionId}.pdf"`
+    );
+    res.setHeader("Content-Length", String(pdf.length));
+    return res.send(pdf);
+  } catch (err: any) {
+    if (err instanceof InspectionNotFoundError) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof InspectionIncompleteError) {
+      return res.status(409).json({ error: err.message });
+    }
+    console.error("Incident PDF generation error:", err);
+    return res.status(500).json({ error: "Failed to generate incident PDF" });
   }
 });
 

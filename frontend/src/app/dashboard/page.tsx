@@ -19,7 +19,7 @@ import {
 import { oceanHealth } from "@/data/metrics";
 import { pollutionLabels, alertMeta } from "@/lib/constants";
 import { relativeTime, formatDate } from "@/lib/utils";
-import { useAppStore } from "@/store/useAppStore";
+import { useAppStore, type DronePositionInfo } from "@/store/useAppStore";
 import { useLiveKpis } from "@/hooks/useLiveKpis";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useEffect } from "react";
@@ -61,7 +61,8 @@ function severityColor(sev: number) {
 
 function buildMapPoints(
   activeLayers: MapLayer[],
-  intensity = 1
+  intensity = 1,
+  dronePositions: Record<string, DronePositionInfo> = {}
 ): MapPoint[] {
   const points: MapPoint[] = [];
   if (activeLayers.includes("heatmap")) {
@@ -84,12 +85,33 @@ function buildMapPoints(
   }
   if (activeLayers.includes("drones")) {
     for (const d of drones) {
+      // Prefer the live SSE-fed position over the static dataset position so the
+      // marker actually moves during a dispatch instead of sitting on the seed
+      // coordinates from drones.json.
+      const live = dronePositions[d.id];
+      const coordinates = live ? { lat: live.lat, lng: live.lng } : d.position;
+      const dispatched = !!live && live.status === "active";
       points.push({
         id: d.id,
-        coordinates: d.position,
-        color: "#0EA5E9",
-        radius: 6,
-        label: `${d.name} · ${d.status}`,
+        coordinates,
+        color: dispatched ? "#ff6b35" : d.status === "active" ? "#22e6a3" : "#0EA5E9",
+        radius: dispatched ? 14 : 6,
+        label: dispatched
+          ? `🚁 ${d.name} — DISPATCHED · ${live?.progress ?? 0}%`
+          : `${d.name} · ${live?.status ?? d.status}`,
+      });
+    }
+    // Surface drones that exist only in the live stream (e.g. dispatched before
+    // the REST fleet snapshot loaded) so they are not silently dropped.
+    const known = new Set(drones.map((d) => d.id));
+    for (const live of Object.values(dronePositions)) {
+      if (known.has(live.id)) continue;
+      points.push({
+        id: live.id,
+        coordinates: { lat: live.lat, lng: live.lng },
+        color: live.status === "active" ? "#ff6b35" : "#0EA5E9",
+        radius: live.status === "active" ? 14 : 6,
+        label: `🚁 ${live.name ?? live.id} · ${live.status}`,
       });
     }
   }
@@ -147,6 +169,10 @@ function ChartsSkeleton() {
 
 export default function DashboardPage() {
   const selectedRegion = useAppStore((s) => s.selectedRegion);
+  // Live drone telemetry (SSE `drone_update`). Subscribing here is what makes
+  // the dashboard markers move — without it the map read the static dataset.
+  const dronePositions = useAppStore((s) => s.dronePositions);
+  const droneDispatch = useAppStore((s) => s.droneDispatch);
   const dateRange = useAppStore((s) => s.dateRange);
   const timeHorizon = useAppStore((s) => s.timeHorizon);
   const getHorizonProjection = useAppStore((s) => s.getHorizonProjection);
@@ -194,7 +220,52 @@ export default function DashboardPage() {
   }, [dateRange, projection.changePct]);
 
   const healthPie = useMemo(() => makeHealthPie(projection.oceanHealth), [projection.oceanHealth]);
-  const mapPoints = useMemo(() => buildMapPoints(MAP_LAYERS, intensity), [intensity]);
+  // Rebuild whenever live positions or the dispatch change — the previous deps
+  // ([intensity]) meant the map never re-rendered on drone movement.
+  const mapPoints = useMemo(
+    () => buildMapPoints(MAP_LAYERS, intensity, dronePositions),
+    [intensity, dronePositions]
+  );
+
+  // Anomaly target beacon, matching the Drone Center map.
+  const anomalyMarker = useMemo<MapPoint[]>(() => {
+    if (!droneDispatch?.targetLat || !droneDispatch?.targetLng) return [];
+    return [
+      {
+        id: "anomaly-target",
+        coordinates: { lat: droneDispatch.targetLat, lng: droneDispatch.targetLng },
+        color: "#ef4444",
+        radius: 16,
+        label: `🚨 Anomaly: ${droneDispatch.location}`,
+      },
+    ];
+  }, [droneDispatch]);
+
+  const allMapPoints = useMemo(
+    () => [...mapPoints, ...anomalyMarker],
+    [mapPoints, anomalyMarker]
+  );
+
+  // Mission route (origin → live position → target) while a dispatch is active.
+  const missionRoutes = useMemo(() => {
+    if (
+      !droneDispatch?.originLat ||
+      !droneDispatch?.originLng ||
+      !droneDispatch?.targetLat ||
+      !droneDispatch?.targetLng
+    ) {
+      return undefined;
+    }
+    const live = dronePositions[droneDispatch.droneId];
+    const path = droneDispatch.path?.length
+      ? droneDispatch.path
+      : [
+          { lat: droneDispatch.originLat, lng: droneDispatch.originLng },
+          { lat: live?.lat ?? droneDispatch.originLat, lng: live?.lng ?? droneDispatch.originLng },
+          { lat: droneDispatch.targetLat, lng: droneDispatch.targetLng },
+        ];
+    return [{ id: "mission-path", path, color: "#ff6b35" }];
+  }, [droneDispatch, dronePositions]);
   const isMobile = useMediaQuery("(max-width: 639px)");
   const mapHeight = isMobile ? 280 : 400;
   const [mapFade, setMapFade] = useState(false);
@@ -248,7 +319,7 @@ export default function DashboardPage() {
               </button>
               <div className="transition-opacity duration-300" style={{ opacity: mapFade ? 0 : 1 }}>
                 <Suspense fallback={<MapSkeleton />}>
-                  <MapCard points={mapPoints} layers={layers} height={`${mapHeight}px`} center={selectedRegion ? [20, 0] : [15, 0]} zoom={selectedRegion ? 3 : 2} onViewportChange={onRegionChange} />
+                  <MapCard points={allMapPoints} routes={missionRoutes} layers={layers} height={`${mapHeight}px`} center={selectedRegion ? [20, 0] : [15, 0]} zoom={selectedRegion ? 3 : 2} onViewportChange={onRegionChange} />
                 </Suspense>
               </div>
             </div>
@@ -327,7 +398,7 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="flex-1">
-            <MapCard points={mapPoints} layers={layers} height="100%" center={selectedRegion ? [20, 0] : [15, 0]} zoom={selectedRegion ? 3 : 2} />
+            <MapCard points={allMapPoints} routes={missionRoutes} layers={layers} height="100%" center={selectedRegion ? [20, 0] : [15, 0]} zoom={selectedRegion ? 3 : 2} />
           </div>
         </div>
       )}

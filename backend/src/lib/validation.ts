@@ -25,6 +25,17 @@ export const sensorIngestSchema = z.object({
   turbidity: z.number().min(0).max(1000).optional(),
 });
 
+// ─── Device Diagnostics (Phase 6B: self-reported, throttled) ─────────────────
+export const deviceDiagnosticsSchema = z.object({
+  firmwareVersion: z.string().max(32).optional(),
+  validationSessionId: z.string().regex(/^VAL-\d{8}-\d{3}$/).max(24).optional(),
+  uptimeSeconds: z.number().min(0).max(10_000_000).optional(),
+  wifiRssi: z.number().min(-120).max(0).optional(),
+  pressureSource: z.string().max(32).optional(),
+  sensors: z.record(z.string(), z.string().max(32)).optional(),
+  calibration: z.record(z.string(), z.string().max(32)).optional(),
+});
+
 // ─── Pollution Forecast ───────────────────────────────────────────────────────
 export const pollutionForecastSchema = z.object({
   severity: z.number().min(1).max(10),
@@ -65,6 +76,7 @@ export const settingsPatchSchema = z.object({
 // ─── Type Exports ─────────────────────────────────────────────────────────────
 export type SensorPredictInput = z.infer<typeof sensorPredictSchema>;
 export type SensorIngestInput = z.infer<typeof sensorIngestSchema>;
+export type DeviceDiagnosticsInput = z.infer<typeof deviceDiagnosticsSchema>;
 export type PollutionForecastInput = z.infer<typeof pollutionForecastSchema>;
 export type SpeciesClassifyInput = z.infer<typeof speciesClassifySchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

@@ -24,6 +24,8 @@ class SSEManager {
   private clients = new Map<string, SSEClient>();
   private clientCounter = 0;
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  /** Lifetime broadcast() calls (telemetry for System Intelligence). */
+  private broadcastCount = 0;
 
   constructor() {
     // Send heartbeat every 15s to keep connections alive (prevents nginx timeout).
@@ -82,6 +84,7 @@ class SSEManager {
 
   /** Broadcast event to ALL connected clients (like Redis PUBLISH) */
   broadcast(event: string, data: unknown): void {
+    this.broadcastCount++;
     if (this.clients.size === 0) return;
 
     const deadClients: string[] = [];
@@ -106,6 +109,7 @@ class SSEManager {
   getStats() {
     return {
       activeClients: this.clients.size,
+      eventsBroadcast: this.broadcastCount,
       clients: Array.from(this.clients.values()).map(c => ({
         id: c.id,
         connectedAt: c.connectedAt,

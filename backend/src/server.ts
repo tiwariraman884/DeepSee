@@ -17,7 +17,14 @@ app.use(express.static(path.join(__dirname, "../public")));
 
 // ─── Rate Limiting ───────────────────────────────────────────────────────────
 import { rateLimit } from "./lib/rateLimit";
-app.use("/api/", rateLimit(100, 60_000)); // 100 requests per minute per IP
+const apiLimiter = rateLimit(100, 60_000); // 100 requests per minute per IP
+app.use("/api/", (req, res, next) => {
+  // Long-lived SSE streams hold one connection open for minutes; counting
+  // every (re)connect against the shared per-IP budget lets a reconnect burst
+  // starve real API calls (e.g. demo scenario start → 429). Exempt them.
+  if (req.path === "/sensors/stream" || req.path === "/sensors/live") return next();
+  return apiLimiter(req, res, next);
+});
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 import authRoutes      from "./routes/auth";
@@ -31,6 +38,9 @@ import missionsRoutes  from "./routes/missions";
 import reportsRoutes   from "./routes/reports";
 import settingsRoutes  from "./routes/settings";
 import alertsRoutes    from "./routes/alerts";
+import demoRoutes       from "./routes/demo";
+import systemRoutes     from "./routes/system";
+import visionRoutes     from "./routes/vision";
 
 app.use("/api/auth",      authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
@@ -43,6 +53,9 @@ app.use("/api/missions",  missionsRoutes);
 app.use("/api/reports",   reportsRoutes);
 app.use("/api/settings",  settingsRoutes);
 app.use("/api/alerts",    alertsRoutes);
+app.use("/api/demo",      demoRoutes);
+app.use("/api/system",    systemRoutes);
+app.use("/api/vision",    visionRoutes);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) => {

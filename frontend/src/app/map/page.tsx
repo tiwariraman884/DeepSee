@@ -8,6 +8,8 @@ import { pollution, species, drones, sensors } from "@/data";
 import { pollutionLabels, severityMarkerColor, severityRadius, severityBand } from "@/lib/constants";
 import { formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/store/useAppStore";
+import { useActiveMissionSync } from "@/hooks/useActiveMissionSync";
 
 type Layer = "pollution" | "species" | "drones" | "sensors";
 
@@ -30,6 +32,42 @@ export default function MapPage() {
     drones: true,
     sensors: true,
   });
+  // Live SSE drone telemetry — static dataset coordinates never move, so the
+  // markers must read the streamed position when one is available.
+  // Late joiners (tab opened mid-mission) hydrate from the persisted mission.
+  useActiveMissionSync();
+  const dronePositions = useAppStore((s) => s.dronePositions);
+  const droneDispatch = useAppStore((s) => s.droneDispatch);
+
+  // Maritime searoute: the dispatched mission's planned path (computed by the
+  // backend via searoute-js) plus the actually traveled segment up to the
+  // drone's latest live position. Nothing is drawn without a real dispatch.
+  const liveDronePos =
+    droneDispatch ? dronePositions[droneDispatch.droneId] : undefined;
+  const missionRoutes =
+    droneDispatch?.path && droneDispatch.path.length >= 2
+      ? [
+          {
+            id: "mission-route-planned",
+            path: droneDispatch.path,
+            color: "#ff6b35",
+          },
+          ...(liveDronePos &&
+          droneDispatch.originLat !== undefined &&
+          droneDispatch.originLng !== undefined
+            ? [
+                {
+                  id: "mission-route-traveled",
+                  path: [
+                    { lat: droneDispatch.originLat, lng: droneDispatch.originLng },
+                    { lat: liveDronePos.lat, lng: liveDronePos.lng },
+                  ],
+                  color: "#43d1ff",
+                },
+              ]
+            : []),
+        ]
+      : [];
 
   const points = [
     ...(layers.pollution
@@ -64,20 +102,25 @@ export default function MapPage() {
       : []),
     ...(layers.drones
       ? drones
-          .filter((d) => d.status !== "offline")
-          .map((d) => ({
-            id: `d-${d.id}`,
-            coordinates: d.position,
-            color: "#43d1ff",
-            radius: 6,
-            label: d.name,
-            popup: (
-              <div>
-                <p className="font-semibold">{d.name}</p>
-                <p className="text-xs">Depth {d.depth}m · Battery {d.battery}%</p>
-              </div>
-            ),
-          }))
+          .map((d) => ({ d, live: dronePositions[d.id] }))
+          .filter(({ d, live }) => (live?.status ?? d.status) !== "offline")
+          .map(({ d, live }) => {
+            const dispatched = !!live && live.status === "active";
+            return {
+              id: `d-${d.id}`,
+              coordinates: live ? { lat: live.lat, lng: live.lng } : d.position,
+              color: dispatched ? "#ff6b35" : "#43d1ff",
+              radius: dispatched ? 14 : 6,
+              label: dispatched ? `🚁 ${d.name} — DISPATCHED` : d.name,
+              popup: (
+                <div>
+                  <p className="font-semibold">{d.name}</p>
+                  <p className="text-xs">Depth {d.depth}m · Battery {live?.battery ?? d.battery}%</p>
+                  {dispatched && <p className="text-xs text-orange-400 font-bold mt-1">🚁 En Route to Anomaly</p>}
+                </div>
+              ),
+            };
+          })
       : []),
     ...(layers.sensors
       ? sensors.map((s) => ({
@@ -96,6 +139,18 @@ export default function MapPage() {
           ),
         }))
       : []),
+    // Anomaly target beacon while a dispatch is active.
+    ...(layers.drones && droneDispatch?.targetLat && droneDispatch?.targetLng
+      ? [
+          {
+            id: "anomaly-target",
+            coordinates: { lat: droneDispatch.targetLat, lng: droneDispatch.targetLng },
+            color: "#ef4444",
+            radius: 16,
+            label: `🚨 Anomaly: ${droneDispatch.location}`,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -103,7 +158,7 @@ export default function MapPage() {
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="lg:col-span-3">
           <Card className="p-3">
-            <OceanMap points={points} height="560px" />
+            <OceanMap points={points} routes={missionRoutes} height="560px" />
           </Card>
         </div>
         <div className="space-y-4">

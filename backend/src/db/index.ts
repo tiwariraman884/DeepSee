@@ -253,4 +253,85 @@ function runMigrations(db: any): void {
   addColumn("drone_inspections", "selection_reason TEXT");
   addColumn("drone_inspections", "distance_km REAL");
   addColumn("drone_inspections", "progress_label TEXT");
+
+  // ── Vision frames + evidence provenance (Phase 6D) ─────────────────────────
+  // Additive + nullable: all historical rows keep working.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vision_frames (
+      id                TEXT PRIMARY KEY,
+      inspection_id     TEXT,
+      source_type       TEXT NOT NULL,
+      source_device_id  TEXT,
+      camera_id         TEXT,
+      sequence_number   INTEGER NOT NULL DEFAULT 0,
+      captured_at       TEXT NOT NULL,
+      width             INTEGER,
+      height            INTEGER,
+      mime_type         TEXT,
+      quality_status    TEXT,
+      brightness        REAL,
+      sharpness         REAL,
+      processing_status TEXT NOT NULL DEFAULT 'QUEUED',
+      inference_ms      INTEGER,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_vision_frames_inspection
+      ON vision_frames(inspection_id);
+    CREATE INDEX IF NOT EXISTS idx_vision_frames_captured
+      ON vision_frames(captured_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vision_frames_source
+      ON vision_frames(source_type);
+  `);
+  try { db.exec("ALTER TABLE inspection_evidence ADD COLUMN frame_id TEXT"); } catch { /* exists */ }
+  try { db.exec("ALTER TABLE inspection_evidence ADD COLUMN source_type TEXT"); } catch { /* exists */ }
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_evidence_frame ON inspection_evidence(frame_id)"); } catch { /* exists */ }
+
+  // ── Incident reports (Step 4: Automated Incident Report) ───────────────────
+  // One snapshot row per completed inspection; inspection_id UNIQUE prevents
+  // duplicate reports when generation is requested repeatedly.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS incident_reports (
+      id              TEXT PRIMARY KEY,
+      inspection_id   TEXT NOT NULL UNIQUE,
+      alert_id        TEXT,
+      severity        TEXT,
+      report_json     TEXT NOT NULL,
+      generated_at    TEXT NOT NULL,
+      generated_by    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_incident_reports_inspection
+      ON incident_reports(inspection_id);
+    CREATE INDEX IF NOT EXISTS idx_incident_reports_generated
+      ON incident_reports(generated_at DESC);
+  `);
+
+  // ── Hardware telemetry traceability (Phase 6A: ESP32 gateway) ──────────────
+  // Nullable + additive: every pre-existing reading row keeps working.
+  try { db.exec("ALTER TABLE sensor_readings ADD COLUMN source TEXT"); } catch { /* exists */ }
+  try { db.exec("ALTER TABLE sensor_readings ADD COLUMN device_id TEXT"); } catch { /* exists */ }
+  // Provenance lookups (latest reading per sensor) scan this table — with
+  // 400k+ rows the GROUP BY needs a COVERING index to stay in milliseconds
+  // (grouping + MAX + source/device_id all served from the index, no table
+  // visits, no sort).
+  try { db.exec("DROP INDEX IF EXISTS idx_sr_sensor_time"); } catch { /* ignore */ }
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_sr_sensor_time_cov ON sensor_readings(sensor_id, recorded_at, source, device_id)"); } catch { /* exists */ }
+
+  // ── First hardware device registration (Phase 6A) ──────────────────────────
+  // INSERT OR IGNORE so re-runs and existing databases are untouched.
+  // Coordinates default to the main operating area; override with
+  // ESP32_DEVICE_LAT / ESP32_DEVICE_LNG (never hard-code deployment GPS
+  // in firmware — firmware only carries them as build-time config).
+  try {
+    const lat = Number(process.env.ESP32_DEVICE_LAT ?? 18.0);
+    const lng = Number(process.env.ESP32_DEVICE_LNG ?? -77.0);
+    db.prepare(
+      `INSERT OR IGNORE INTO sensors
+         (id, name, type, lat, lng, online, status, updated_at, last_reading_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "esp32_001", "DeepSea ESP32 Station 001", "temperature",
+      Number.isFinite(lat) ? lat : 18.0, Number.isFinite(lng) ? lng : -77.0,
+      0, "offline", new Date().toISOString(), "{}"
+    );
+  } catch { /* registration is best-effort at boot */ }
 }

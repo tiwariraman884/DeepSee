@@ -217,6 +217,17 @@ class MLWorker extends EventEmitter {
     return this.ready;
   }
 
+  /**
+   * Telemetry lifecycle state (Step 5): ready | starting | unavailable.
+   * `starting` = a start is in flight or a live process exists but the ready
+   * handshake hasn't completed; `unavailable` = no process / stopped / failed.
+   */
+  getLifecycleState(): "ready" | "starting" | "unavailable" {
+    if (this.ready) return "ready";
+    if (this.startPromise !== null || (this.process !== null && !this.stopped)) return "starting";
+    return "unavailable";
+  }
+
   stop(): void {
     if (this.process) {
       this.stopped = true; // exit handler must not auto-restart

@@ -14,13 +14,16 @@ import cookieParser from "cookie-parser";
 import sensorsRoutes from "../routes/sensors";
 import {
   initSensorPipeline,
-  resetActiveInspectionGuard,
+  resetSensorPipelineForTests,
   shutdownSensorPipelineForTests,
 } from "../lib/sensorPipeline";
 import { mlWorker } from "../lib/mlWorker";
 import { sseManager } from "../lib/sseManager";
+import { eventBus } from "../lib/eventBus";
 import { MIN_BATTERY_PCT } from "../lib/droneSelection";
 import { getDb } from "../db";
+
+
 
 const app = express();
 app.use(express.json());
@@ -67,7 +70,7 @@ describe("POST /api/sensors/ingest", () => {
   it("rejects an invalid reading (missing sensorId)", async () => {
     const res = await request(app).post("/api/sensors/ingest").send({ ph: 8.0 });
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain("sensorId");
+    expect(res.body.error).toContain("Validation failed");
   });
 });
 
@@ -75,7 +78,7 @@ describe("POST /api/sensors/predict", () => {
   it("rejects missing fields (invalid reading)", async () => {
     const res = await request(app).post("/api/sensors/predict").send({ temperature: 3.1 });
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain("Missing fields");
+    expect(res.body.error).toContain("Validation failed");
   });
 
   it("classifies clean deep-sea water as normal (no anomaly)", async () => {
@@ -105,7 +108,14 @@ describe("end-to-end: ingest → ML → alert → dispatch → inspection record
     db.prepare("UPDATE drones SET status = 'idle', battery = MAX(battery, 90)").run();
     // An anomaly-predict in an earlier test starts a mission whose guard would
     // suppress this test's dispatch — release it deterministically.
-    resetActiveInspectionGuard();
+    // NOTE: the earlier /predict anomaly is processed asynchronously
+    // (SensorConsumer awaits the ML worker), so it can publish AFTER a reset.
+    // Settle first, then drain queued EventBus redeliveries and reset again,
+    // so this test's ingest is the next dispatch. Test-only; no prod change.
+    resetSensorPipelineForTests();
+    await new Promise((r) => setTimeout(r, 1000));
+    eventBus.clear();
+    resetSensorPipelineForTests();
 
     const before = (db.prepare("SELECT COUNT(*) c FROM drone_inspections").get() as any).c;
 
@@ -149,7 +159,9 @@ describe("end-to-end: ingest → ML → alert → dispatch → inspection record
     expect(latest.sensor_name).toBe("Temp Station Alpha");
     expect(latest.selection_reason).toContain("nearest eligible drone");
     expect(typeof latest.distance_km).toBe("number");
-    expect(latest.distance_km).toBeGreaterThan(0);
+    // NOTE: the nearest eligible drone may be co-located with the sensor
+    // (0 km is legitimate — see droneSelection distanceKm tests), so >= 0.
+    expect(latest.distance_km).toBeGreaterThanOrEqual(0);
 
     // The selected drone must satisfy the eligibility battery threshold.
     const selectedDrone = db.prepare(

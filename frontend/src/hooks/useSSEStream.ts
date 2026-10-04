@@ -8,7 +8,12 @@ import { useAppStore } from "@/store/useAppStore";
  * and event-driven store updates. Replaces the basic EventSource usage.
  */
 export function useSSEStream() {
-  const store = useAppStore();
+  // NOTE: intentionally NOT subscribing to the whole store here. The previous
+  // implementation did `const store = useAppStore()` and listed `store` in the
+  // `connect` dependency array, so EVERY store mutation (each sensor/drone
+  // update) tore down and reopened the EventSource — an accidental reconnect
+  // storm that flooded /api/sensors/stream and starved the shared rate limit.
+  // Handlers below use the stable getState() accessor; `connect` has no deps.
   const retryCount = useRef(0);
   const maxRetries = 10;
   const baseDelay = 1000;
@@ -23,19 +28,20 @@ export function useSSEStream() {
     }
 
     isConnecting.current = true;
+    const store = useAppStore.getState();
     const sse = new EventSource("/api/sensors/stream");
     eventSourceRef.current = sse;
 
     sse.onopen = () => {
       isConnecting.current = false;
       retryCount.current = 0;
-      store.setSseConnected(true);
+      useAppStore.getState().setSseConnected(true);
       console.log("[SSE] Connected");
     };
 
     sse.onerror = () => {
       isConnecting.current = false;
-      store.setSseConnected(false);
+      useAppStore.getState().setSseConnected(false);
       sse.close();
 
       if (retryCount.current < maxRetries) {
@@ -67,7 +73,7 @@ export function useSSEStream() {
     sse.addEventListener("anomaly_alert", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        store.addAlert({
+        useAppStore.getState().addAlert({
           id: data.id,
           type: data.type,
           message: data.message,
@@ -86,7 +92,7 @@ export function useSSEStream() {
     sse.addEventListener("drone_dispatch", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        store.setDroneDispatch(data);
+        useAppStore.getState().setDroneDispatch(data);
       } catch (e) {
         console.error("[SSE] Failed to parse drone_dispatch", e);
       }
@@ -96,7 +102,7 @@ export function useSSEStream() {
     sse.addEventListener("drone_update", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        store.updateDronePosition(data);
+        useAppStore.getState().updateDronePosition(data);
       } catch (e) {
         console.error("[SSE] Failed to parse drone_update", e);
       }
@@ -106,8 +112,9 @@ export function useSSEStream() {
     sse.addEventListener("inspection_phase", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        store.setInspectionPhase(data.inspectionId, data.phase);
-        store.addInspectionTimeline(data.inspectionId, data.message);
+        const st = useAppStore.getState();
+        st.setInspectionPhase(data.inspectionId, data.phase);
+        st.addInspectionTimeline(data.inspectionId, data.message);
       } catch (e) {
         console.error("[SSE] Failed to parse inspection_phase", e);
       }
@@ -117,7 +124,7 @@ export function useSSEStream() {
     sse.addEventListener("inspection_progress", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        store.setInspectionProgress(data.inspectionId, data.progress, data.label);
+        useAppStore.getState().setInspectionProgress(data.inspectionId, data.progress, data.label);
       } catch (e) {
         console.error("[SSE] Failed to parse inspection_progress", e);
       }
@@ -127,7 +134,7 @@ export function useSSEStream() {
     sse.addEventListener("inspection_finding", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        store.addInspectionFinding(data.inspectionId, {
+        useAppStore.getState().addInspectionFinding(data.inspectionId, {
           kind: data.kind,
           label: data.label,
           confidence: data.confidence,
@@ -142,7 +149,7 @@ export function useSSEStream() {
     sse.addEventListener("ai_detection", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        store.setAiDetection(data.inspectionId, {
+        useAppStore.getState().setAiDetection(data.inspectionId, {
           label: data.label,
           confidence: data.confidence,
           conservation: data.conservation,
@@ -157,7 +164,7 @@ export function useSSEStream() {
     sse.addEventListener("inspection_completed", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        store.setInspectionMeta(data.inspectionId, {
+        useAppStore.getState().setInspectionMeta(data.inspectionId, {
           severity: data.severity,
           summary: data.summary,
           completedAt: data.timestamp,
@@ -171,7 +178,7 @@ export function useSSEStream() {
     sse.addEventListener("heartbeat", () => {
       // Connection is alive, no action needed
     });
-  }, [store]);
+  }, []);
 
   useEffect(() => {
     connect();
