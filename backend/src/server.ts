@@ -4,13 +4,23 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import path from "path";
 
+import helmet from "helmet";
+
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+import { assertSafeProductionAuth } from "./lib/authMiddleware";
+
+// Fail fast if the process was pointed at test mode outside a real Jest run —
+// see assertSafeProductionAuth(). This is a startup guard, not a per-request check.
+assertSafeProductionAuth();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+app.use(helmet());
+const allowedOrigin = process.env.CORS_ORIGIN || "http://localhost:3000";
+app.use(cors({ origin: allowedOrigin, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "../public")));
@@ -42,7 +52,8 @@ import demoRoutes       from "./routes/demo";
 import systemRoutes     from "./routes/system";
 import visionRoutes     from "./routes/vision";
 
-app.use("/api/auth",      authRoutes);
+const authLimiter = rateLimit(5, 60_000); // 5 requests per minute for auth
+app.use("/api/auth",      authLimiter, authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/drones",    dronesRoutes);

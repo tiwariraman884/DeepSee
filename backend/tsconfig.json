@@ -11,7 +11,9 @@
     "types": ["jest", "node"],
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "jest.setup.ts", "**/*.test.ts"]
 }
