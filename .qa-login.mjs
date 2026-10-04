@@ -7,7 +7,9 @@ export default async function run(page, ui) {
 
   const t1 = Date.now();
   await page.fill("#email", "admin@deepsea.io");
-  await page.fill("#password", "[REDACTED]");
+  // Password comes from ADMIN_PASSWORD; no hardcoded fallback. The harness aborts
+  // rather than submitting a guessed credential.
+  await page.fill("#password", process.env.ADMIN_PASSWORD ?? "");
   // The submit button is gated on hydration — wait for it like a real user.
   await page.waitForSelector('button[type="submit"]:not([disabled])', { timeout: 30000 });
   await page.click('button[type="submit"]');

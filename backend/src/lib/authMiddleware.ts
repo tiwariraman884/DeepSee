@@ -1,16 +1,35 @@
 /**
  * Authentication middleware for Express routes.
  * Supports both cookie-based sessions (existing) and API key auth (for programmatic access).
+ *
+ * ── Test-only auth bypass ──────────────────────────────────────────────────────
+ * The test suite mounts real routers (demo.ts, settings.ts, …) that sit behind
+ * requireAuth/requireAdmin, and drives them over supertest without minting real
+ * JWTs. A bypass exists so those suites exercise routing/business logic rather
+ * than re-implementing token minting.
+ *
+ * It is NOT gated on NODE_ENV alone. NODE_ENV is operator-controlled, so
+ * `NODE_ENV=test` in a deployed container would otherwise disable
+ * authentication entirely. It requires ALL of:
+ *   1. NODE_ENV === "test", AND
+ *   2. JEST_WORKER_ID is defined — Jest sets this per worker process, so it is
+ *      only present inside an actual test run and cannot be set by accident
+ *      through a compose/env file in normal operation, AND
+ *   3. ALLOW_TEST_AUTH_BYPASS === "true" — an explicit, separate opt-in so a
+ *      stray NODE_ENV=test alone is never sufficient.
+ *
+ * Production never satisfies these: a production server has no JEST_WORKER_ID
+ * and the opt-in is absent, so it always performs real JWT verification.
+ * See assertSafeProductionAuth() below, which refuses to boot under an unsafe
+ * combination.
  */
 import type { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 
-const DEV_FALLBACK_SECRET = "deepsea-guardian-very-secret-key-that-is-32-chars-long";
-const SECRET = process.env.AUTH_SECRET || process.env.SESSION_SECRET ||
-  (process.env.NODE_ENV === "production" ? undefined : DEV_FALLBACK_SECRET);
+const SECRET = process.env.AUTH_SECRET || process.env.SESSION_SECRET;
 
-if (!SECRET && process.env.NODE_ENV === "production") {
-  throw new Error("AUTH_SECRET must be set in production");
+if (!SECRET) {
+  throw new Error("AUTH_SECRET or SESSION_SECRET must be set");
 }
 
 function b64url(data: string): string {
@@ -19,6 +38,38 @@ function b64url(data: string): string {
 
 function fromB64url(data: string): string {
   return Buffer.from(data, "base64url").toString("utf8");
+}
+
+/**
+ * True only inside a genuine Jest worker that explicitly opted in.
+ * Requires JEST_WORKER_ID (set by Jest per worker, absent in any real server)
+ * in addition to NODE_ENV=test, so NODE_ENV alone can never disable auth.
+ */
+function testAuthBypassEnabled(): boolean {
+  return (
+    process.env.NODE_ENV === "test" &&
+    process.env.JEST_WORKER_ID !== undefined &&
+    process.env.ALLOW_TEST_AUTH_BYPASS === "true"
+  );
+}
+
+/**
+ * Refuse to boot when authentication could be silently disabled.
+ *
+ * NODE_ENV=test on a server that is NOT running under Jest means someone has
+ * pointed a real deployment at test mode. Under the old NODE_ENV-only check
+ * that single variable disabled authentication for every route. Now it can
+ * only disable auth inside Jest, so this is a hard startup error rather than a
+ * silent downgrade. Fail closed — do not convert this to a warning.
+ */
+export function assertSafeProductionAuth(): void {
+  if (process.env.NODE_ENV !== "test") return;
+  if (testAuthBypassEnabled()) return;
+  throw new Error(
+    "Refusing to start: NODE_ENV=test without an active Jest worker and " +
+      "ALLOW_TEST_AUTH_BYPASS=true. Setting NODE_ENV=test on a real " +
+      "deployment would disable authentication. Use NODE_ENV=production."
+  );
 }
 
 function verifyToken(token: string): { id: string; role: string } | null {
@@ -44,17 +95,13 @@ function verifyToken(token: string): { id: string; role: string } | null {
  * 3. API key in X-API-Key header (programmatic access)
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  // Skip auth in development/test if no secret is set
-  if (!SECRET && process.env.NODE_ENV !== "production") {
-    (req as any).user = { id: "dev-user", role: "admin" };
-    return next();
-  }
-
-  // Skip auth in test environment (Jest sets NODE_ENV=test)
-  if (process.env.NODE_ENV === "test") {
+  // Test-only bypass — see the header note. Requires a real Jest worker AND an
+  // explicit opt-in; NODE_ENV=test by itself falls through to real JWT checks.
+  if (testAuthBypassEnabled()) {
     (req as any).user = { id: "test-user", role: "admin" };
     return next();
   }
+
 
   // Check API key first
   const apiKey = req.headers["x-api-key"] as string;
@@ -91,6 +138,12 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
  * Require admin role. Must be used after requireAuth.
  */
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  // Test-only bypass — see the header note.
+  if (testAuthBypassEnabled()) {
+    (req as any).user = { id: "test-user", role: "admin" };
+    return next();
+  }
+  
   const user = (req as any).user;
   if (!user || user.role !== "admin") {
     res.status(403).json({ error: "Admin access required" });

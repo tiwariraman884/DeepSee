@@ -5,15 +5,13 @@ import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import { validate } from "../lib/validate";
 import { loginSchema, signupSchema } from "../lib/validation";
+import { requireAuth } from "../lib/authMiddleware";
 
 const router = Router();
 
-const DEV_FALLBACK_SECRET = "deepsea-guardian-very-secret-key-that-is-32-chars-long";
-const SECRET =
-  process.env.AUTH_SECRET || process.env.SESSION_SECRET ||
-  (process.env.NODE_ENV === "production" ? undefined : DEV_FALLBACK_SECRET);
+const SECRET = process.env.AUTH_SECRET || process.env.SESSION_SECRET;
 if (!SECRET) {
-  throw new Error("AUTH_SECRET (or SESSION_SECRET) must be set in production");
+  throw new Error("AUTH_SECRET or SESSION_SECRET must be set");
 }
 
 function b64url(data: string): string {
@@ -62,22 +60,6 @@ router.post("/login", validate(loginSchema), async (req, res) => {
 
   try {
     const db = getDb();
-    const adminEmail = process.env.ADMIN_EMAIL ?? "admin@deepsea.io";
-    const adminPassword = process.env.ADMIN_PASSWORD ?? "[REDACTED]";
-    if (email === adminEmail && password === adminPassword) {
-      let user = db.prepare("SELECT * FROM users WHERE email = ?").get(email) as any;
-      if (!user) {
-        const now = new Date().toISOString();
-        const id = "usr_admin";
-        const ph = await hashPassword(password);
-        db.prepare("INSERT OR IGNORE INTO users (id, name, email, password, password_hash, role, created_at) VALUES (?,?,?,?,?,?,?)")
-          .run(id, "Admin", email, "", ph, "admin", now);
-        user = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
-      }
-      issueToken(res, user);
-      return res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
-    }
-
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email) as any;
     if (!user) return res.status(401).json({ error: { message: "Invalid email or password." } });
 
@@ -120,33 +102,9 @@ router.post("/logout", (req, res) => {
   return res.json({ success: true });
 });
 
-router.get("/me", (req, res) => {
-  const token = req.cookies["auth-token"] || req.cookies.session_token;
-  if (!token) return res.status(401).json({ error: { message: "Not logged in" } });
-
+router.get("/me", requireAuth, (req, res) => {
   try {
-    const parts = token.split(".");
-    let userId: string | null = null;
-
-    if (parts.length === 3) {
-      const [header, body, sig] = parts;
-      const unsigned = `${header}.${body}`;
-      const expectedSig = crypto.createHmac("sha256", SECRET!).update(unsigned).digest("base64url");
-      if (sig !== expectedSig) return res.status(401).json({ error: { message: "Invalid token" } });
-      const payload = JSON.parse(fromB64url(body));
-      userId = payload.id;
-    } else if (parts.length === 2) {
-      const [payload, signature] = parts;
-      const expectedSig = crypto.createHmac("sha256", SECRET).update(payload).digest("hex");
-      if (signature !== expectedSig) return res.status(401).json({ error: { message: "Invalid token" } });
-      const parsed = JSON.parse(Buffer.from(payload, "base64").toString());
-      userId = parsed.userId;
-    } else {
-      return res.status(401).json({ error: { message: "Invalid token" } });
-    }
-
-    if (!userId) return res.status(401).json({ error: { message: "Invalid token" } });
-
+    const userId = (req as any).user.id;
     const db = getDb();
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
     if (!user) return res.status(404).json({ error: { message: "User not found" } });
@@ -168,21 +126,9 @@ router.get("/me", (req, res) => {
   }
 });
 
-router.patch("/profile", async (req, res) => {
-  const token = req.cookies["auth-token"] || req.cookies.session_token;
-  if (!token) return res.status(401).json({ error: { message: "Not logged in" } });
-
+router.patch("/profile", requireAuth, async (req, res) => {
   try {
-    const parts = token.split(".");
-    let userId: string | null = null;
-    if (parts.length === 3) {
-      const payload = JSON.parse(fromB64url(parts[1]));
-      userId = payload.id;
-    } else if (parts.length === 2) {
-      const parsed = JSON.parse(Buffer.from(parts[0], "base64").toString());
-      userId = parsed.userId;
-    }
-    if (!userId) return res.status(401).json({ error: { message: "Invalid token" } });
+    const userId = (req as any).user.id;
 
     const { fullName, name, email, organization, avatar } = req.body;
     const newName = fullName || name;

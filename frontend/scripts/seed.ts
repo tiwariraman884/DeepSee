@@ -133,12 +133,19 @@ const seed = db.transaction(() => {
   // Seed demo admin user (if not exists)
   const existingAdmin = db.prepare("SELECT id FROM users WHERE email = ?").get("admin@deepsea.io");
   if (!existingAdmin) {
-    const hash = bcrypt.hashSync("[REDACTED]", 12);
+    // Fail loudly rather than falling back to a default. A fallback here means
+    // an admin account gets created with a publicly known password, so seeding
+    // must abort instead of silently minting a privileged credential.
+    const adminPass = process.env.ADMIN_PASSWORD;
+    if (!adminPass) {
+      throw new Error("ADMIN_PASSWORD must be set before seeding an admin account.");
+    }
+    const hash = bcrypt.hashSync(adminPass, 12);
     db.prepare(`
       INSERT INTO users (id, name, email, password, role, created_at)
       VALUES (?, ?, ?, ?, ?, datetime('now'))
     `).run("u-admin-001", "DeepSea Admin", "admin@deepsea.io", hash, "admin");
-    console.log("  ✅ Demo admin created: admin@deepsea.io / [REDACTED]");
+    console.log("  ✅ Demo admin created: admin@deepsea.io / (ADMIN_PASSWORD from env)");
   }
 
   // Seed pollution events

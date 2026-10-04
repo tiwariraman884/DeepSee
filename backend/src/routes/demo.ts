@@ -16,7 +16,7 @@ import { Router } from "express";
 import { eventBus, TOPICS, SensorReadingEvent } from "../lib/eventBus";
 import { getDb } from "../db";
 import { selectDrone, MIN_BATTERY_PCT } from "../lib/droneSelection";
-import { requireAuth } from "../lib/authMiddleware";
+import { requireAuth, requireAdmin } from "../lib/authMiddleware";
 import { getDroneDispatcher } from "../lib/sensorPipeline";
 import { mlWorker } from "../lib/mlWorker";
 
@@ -106,7 +106,7 @@ const DEMO_ANOMALY_READING = {
  * Starts a controlled emergency scenario using the real pipeline.
  * Returns immediately — the workflow runs asynchronously.
  */
-router.post("/emergency-scenario", requireAuth, (req, res) => {
+router.post("/emergency-scenario", requireAdmin, (req, res) => {
   console.log("[Demo] Emergency scenario request received");
   try {
   // ── 1. Check ML worker availability ──────────────────────────────────────

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getDb } from "../db";
-import { requireAuth } from "../lib/authMiddleware";
+import { requireAuth, requireAdmin } from "../lib/authMiddleware";
 import { validate } from "../lib/validate";
 import { settingsPatchSchema } from "../lib/validation";
 
@@ -57,7 +57,7 @@ router.get("/", requireAuth, (req, res) => {
   }
 });
 
-router.patch("/", requireAuth, validate(settingsPatchSchema), (req, res) => {
+router.patch("/", requireAdmin, validate(settingsPatchSchema), (req, res) => {
   try {
     const db = getDb();
     const userId = getUserIdFromReq(req, db);
@@ -90,7 +90,7 @@ router.patch("/", requireAuth, validate(settingsPatchSchema), (req, res) => {
   }
 });
 
-router.put("/", requireAuth, (req, res, next) => {
+router.put("/", requireAdmin, (req, res, next) => {
   (req as any).method = "PATCH";
   (router as any).handle(req, res, next);
 });
@@ -108,7 +108,7 @@ router.post("/export", requireAuth, (req, res) => {
   }
 });
 
-router.post("/reset", requireAuth, (req, res) => {
+router.post("/reset", requireAdmin, (req, res) => {
   try {
     const db = getDb();
     const userId = getUserIdFromReq(req, db);

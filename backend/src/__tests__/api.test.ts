@@ -11,6 +11,8 @@ import pollutionRoutes from "../routes/pollution";
 import dashboardRoutes from "../routes/dashboard";
 import dronesRoutes from "../routes/drones";
 import { mlWorker } from "../lib/mlWorker";
+import bcrypt from "bcryptjs";
+import { getDb } from "../db";
 
 const app = express();
 app.use(cors());
@@ -26,7 +28,27 @@ app.use("/api/drones", dronesRoutes);
 // Warm the resident ML worker BEFORE any test starts: the first spawn + model
 // load takes ~5-8s, which blows the 5s default per-test timeout if it happens
 // inside the first predict call.
+// Provision our own admin row rather than relying on whatever the ambient
+// development database happens to contain. The password comes from
+// ADMIN_PASSWORD (set in jest.setup.ts) and there is deliberately no hardcoded
+// fallback — an absent ADMIN_PASSWORD must fail loudly, not become a known secret.
 beforeAll(async () => {
+  try {
+    const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD!, 10);
+    getDb().prepare(`
+      INSERT INTO users (id, name, email, password, password_hash, role, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(email) DO UPDATE SET password = excluded.password, password_hash = excluded.password_hash
+    `).run(
+      "u-test-admin", "Test Admin", "admin@deepsea.io", hash, hash, "admin",
+      new Date().toISOString()
+    );
+  } catch (err) {
+    throw new Error(
+      `Could not provision the test admin fixture: ${(err as Error).message}. ` +
+      "ADMIN_PASSWORD must be set."
+    );
+  }
   try { await mlWorker.ensureStarted(); } catch { /* predict tests will fail loudly */ }
 }, 30000);
 
@@ -66,7 +88,7 @@ describe("POST /api/auth/login", () => {
   it("logs in successfully with admin credentials", async () => {
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "admin@deepsea.io", password: "[REDACTED]" });
+      .send({ email: "admin@deepsea.io", password: process.env.ADMIN_PASSWORD! });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.user.email).toBe("admin@deepsea.io");
