@@ -1,13 +1,25 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import dotenv from "dotenv";
 import path from "path";
 
 import helmet from "helmet";
 
-// Load environment variables
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+// ─── Environment bootstrap (MUST come first) ─────────────────────────────────
+// This import has a side effect: it loads the repo-root .env into
+// process.env. It MUST be the first import in this file.
+//
+// In this codebase the backend compiles to CommonJS, so every `import`
+// statement becomes a `require()` emitted at the top of the module, ahead of
+// all other statements. A `dotenv.config()` call placed in the middle of the
+// import block therefore ran AFTER the modules it was meant to configure had
+// already been evaluated — and `lib/authMiddleware.ts` validates AUTH_SECRET
+// at module scope, so the backend crashed on startup with
+// "AUTH_SECRET or SESSION_SECRET must be set".
+//
+// Importing the bootstrap module first guarantees dotenv has run before any
+// other module body executes. See src/lib/env.ts for the full explanation.
+import "./lib/env";
 
 import { assertSafeProductionAuth } from "./lib/authMiddleware";
 

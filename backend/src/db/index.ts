@@ -4,14 +4,39 @@ import fs from "fs";
 // ─── Database singleton ───────────────────────────────────────────────────────
 // Uses Node 22+ built-in node:sqlite (or better-sqlite3 as fallback)
 // File-based SQLite database stored in .data/deepsea.db.
-
-const DATA_DIR = path.join(process.cwd(), "..", ".data");
-const DB_PATH = path.join(DATA_DIR, "deepsea.db");
-
+//
+// The storage root is resolved through `resolveDataDir()` so the Jest suite can
+// be pointed at an isolated, disposable database. Without this override the
+// tests would open the SAME file as a locally running dev server, mutate the
+// developer's real data (admin password hashes, fleet status) and race each
+// other for the SQLite write lock.
+//
+// The resolution is deliberately LAZY (performed on the first getDb() call,
+// not at import time) so that a test harness can point the suite at an
+// isolated directory via DEEPSEA_DATA_DIR even if the db module was imported
+// before the harness had a chance to set it.
 let _db: any = null;
+
+/**
+ * Resolve the directory that holds the runtime database.
+ *
+ * Production / dev:  <repo>/.data   (i.e. ../.data relative to backend/)
+ * Tests:             an isolated directory, overridable via DEEPSEA_DATA_DIR.
+ *
+ * The override is honoured only when explicitly set, so a stale environment
+ * variable can never silently redirect a production server.
+ */
+function resolveDataDir(): string {
+  const override = process.env.DEEPSEA_DATA_DIR?.trim();
+  if (override) return path.isAbsolute(override) ? override : path.resolve(process.cwd(), override);
+  return path.join(process.cwd(), "..", ".data");
+}
 
 export function getDb(): any {
   if (_db) return _db;
+
+  const DATA_DIR = resolveDataDir();
+  const DB_PATH = path.join(DATA_DIR, "deepsea.db");
 
   // Ensure .data directory exists
   if (!fs.existsSync(DATA_DIR)) {
