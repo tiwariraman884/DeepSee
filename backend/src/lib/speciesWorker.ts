@@ -1,6 +1,7 @@
 import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import path from "path";
 import { getPythonBin, getMlDir } from "./python";
+import { mlServiceEnabled, mlServicePost } from "./mlService";
 
 /**
  * Species classifier worker.
@@ -34,6 +35,13 @@ class SpeciesClassifierWorker {
 
   /** Start the worker and wait until the model reports ready. */
   start(): Promise<void> {
+    // Remote ML service (Vercel): no child process exists to hand-shake with.
+    // "Ready" here means "configured"; the model warms on its first request.
+    if (mlServiceEnabled()) {
+      console.log("[SpeciesWorker] Using remote ML service over HTTP (ML_SERVICE_URL)");
+      return Promise.resolve();
+    }
+
     if (this.ready) return this.ready;
     if (this.failed) return Promise.reject(new Error("worker previously failed"));
 
@@ -123,6 +131,11 @@ class SpeciesClassifierWorker {
 
   /** Classify one base64 image. Resolves with the model's JSON response. */
   classify(image_b64: string, timeoutMs = 60000): Promise<any> {
+    if (mlServiceEnabled()) {
+      // Cold start loads a 6MB torch checkpoint; allow a generous budget.
+      return mlServicePost("classify", { image_b64 }, Math.max(timeoutMs, 60000));
+    }
+
     return new Promise((resolve, reject) => {
       if (this.failed || !this.proc) {
         reject(new Error("worker unavailable"));
@@ -140,6 +153,7 @@ class SpeciesClassifierWorker {
   }
 
   get isReady() {
+    if (mlServiceEnabled()) return true;
     return !this.failed && this.proc !== null;
   }
 

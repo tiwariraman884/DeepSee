@@ -16,6 +16,11 @@ export const dynamic = "force-dynamic";
 
 // One limiter instance per process, created at module scope so the window
 // persists across requests (matching the backend's limiter semantics).
+//
+// The session gate lives inside the handler (verifySessionToken — a real HMAC
+// check, not the presence-only check in middleware.ts). On Vercel services the
+// top-level /api/(.*) rewrite hands /api/* to the `backend` service before this
+// app or its middleware runs, so this handler must not rely on middleware.
 const POST = createAssistantHandler({
   limiter: createRateLimiter(ASSISTANT_RATE_LIMIT.max, ASSISTANT_RATE_LIMIT.windowMs),
 });

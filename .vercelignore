@@ -1,0 +1,23 @@
+# Keep the Vercel "ml" service bundle small and dependency-free:
+#   species_classifier.pkl is 29 MB and is only the legacy fallback of
+#   classify_species_server.py; app.py prefers species_classifier.pt (6 MB).
+#   The CSV is training data; the datasets/ folder holds downloaded images.
+ml/species_classifier.pkl
+ml/ocean_sensor_data.csv
+ml/datasets/
+
+# Local-only tooling, docs, and build artifacts
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+.data/
+docs/
+hardware/
+hardware-validation/
+adapters/
+scripts/
+# Local logs and screenshots from verification runs. Deliberately NOT ignoring
+# *.mjs / *.cjs — service bundles use them (e.g. frontend/next.config.mjs).
+*.log
+/*.png

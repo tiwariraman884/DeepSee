@@ -23,6 +23,7 @@ import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import path from "path";
 import { EventEmitter } from "events";
 import { getPythonBin, getMlDir } from "./python";
+import { mlServiceEnabled, mlServicePost } from "./mlService";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface MLPredictionInput {
@@ -70,6 +71,14 @@ class MLWorker extends EventEmitter {
 
   /** Start the Python ML server process */
   async start(): Promise<void> {
+    // Remote ML service (Vercel): nothing to spawn — the HTTP binding replaces
+    // the child-process transport. Always "ready" so predict() takes that path.
+    if (mlServiceEnabled()) {
+      this.ready = true;
+      console.log("[MLWorker] Using remote ML service over HTTP (ML_SERVICE_URL)");
+      return;
+    }
+
     return new Promise((resolve, reject) => {
       console.log("[MLWorker] Spawning Python inference server...");
 
@@ -187,6 +196,28 @@ class MLWorker extends EventEmitter {
 
   /** Predict (async, sub-5ms once model is in RAM) */
   async predict(input: MLPredictionInput, timeoutMs = 5000): Promise<MLPredictionResult> {
+    if (mlServiceEnabled()) {
+      const t0 = Date.now();
+      try {
+        // A cold ML instance pays the model-load cost, so allow more time than
+        // the in-process transport needs.
+        const result = await mlServicePost<Partial<MLPredictionResult> & Pick<MLPredictionResult, "isAnomaly" | "score" | "status">>(
+          "predict",
+          input,
+          Math.max(timeoutMs, 30000)
+        );
+        return { ...result, latency_ms: result.latency_ms ?? Date.now() - t0 };
+      } catch (err: any) {
+        return {
+          isAnomaly: false,
+          score: 0,
+          status: "error",
+          latency_ms: Date.now() - t0,
+          message: err.message,
+        };
+      }
+    }
+
     if (!this.ready || !this.process) {
       try {
         await this.ensureStarted();

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "backend": {
+      "root": "backend",
+      "framework": "express",
+      "entrypoint": "src/app.ts",
+      "bindings": [
+        { "type": "service", "service": "ml", "format": "url", "env": "ML_SERVICE_URL" }
+      ]
+    },
+    "frontend": {
+      "root": "frontend",
+      "framework": "nextjs",
+      "bindings": [
+        { "type": "service", "service": "backend", "format": "url", "env": "BACKEND_URL" }
+      ]
+    },
+    "ml": {
+      "root": "ml",
+      "framework": "fastapi",
+      "entrypoint": "app.py"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/assistant",
+      "destination": { "service": "frontend" }
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": { "service": "backend" }
+    },
+    {
+      "source": "/(.*)",
+      "destination": { "service": "frontend" }
+    }
+  ]
+}

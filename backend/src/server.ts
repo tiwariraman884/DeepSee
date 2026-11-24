@@ -71,7 +71,7 @@ import demoRoutes       from "./routes/demo";
 import systemRoutes     from "./routes/system";
 import visionRoutes     from "./routes/vision";
 
-const authLimiter = rateLimit(5, 60_000); // 5 requests per minute for credential endpoints
+const authLimiter = rateLimit(5, 60_000, "auth"); // 5 requests per minute for credential endpoints
 // /me is fetched by both profile cards (twice more under StrictMode) and
 // /logout is not a guessing surface; limiting them at 5/min made normal
 // navigation answer 429 and look logged out.

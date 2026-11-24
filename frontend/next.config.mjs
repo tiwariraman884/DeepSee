@@ -8,11 +8,18 @@ import withBundleAnalyzer from "@next/bundle-analyzer";
  * with ECONNREFUSED (seen in dev-frontend-err.log). Resolution order:
  *   1. BACKEND_URL          — server-side, set by compose to http://backend:5000
  *   2. NEXT_PUBLIC_API_URL  — existing public variable, still honoured
- *   3. http://localhost:5000 — local development default
+ *   3. null                 — no proxy (see below)
  * Trailing slashes are stripped because the destination appends /api/:path*.
+ *
+ * Vercel services: the deployment's top-level rewrite sends every /api/* request
+ * straight to the `backend` service (vercel.json), so no BACKEND_URL is set and
+ * this app must NOT rewrite /api/* anywhere. Proxying here would loop (backend
+ * origin unknown in a build) or bypass the service route.
  */
 function resolveBackendUrl() {
   const configured = process.env.BACKEND_URL?.trim() || process.env.NEXT_PUBLIC_API_URL?.trim();
+  const isVercelServices = process.env.VERCEL === "1";
+  if (isVercelServices && !configured) return null;
   return (configured || "http://localhost:5000").replace(/\/+$/, "");
 }
 
@@ -36,6 +43,8 @@ const nextConfig = {
     staticRoutesIndicator: false,
   },
   async rewrites() {
+    // Vercel services: /api/* is routed to the backend service at the top level.
+    if (!BACKEND_URL) return [];
     return [
       {
         source: "/api/assistant",
