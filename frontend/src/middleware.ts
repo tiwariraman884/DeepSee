@@ -48,8 +48,13 @@ function isValidToken(token: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // API auth routes & settings are always public
-  if (pathname.startsWith("/api/auth/") || pathname === "/api/settings") {
+  // API auth routes, settings & real-time sensor streams are public
+  if (
+    pathname.startsWith("/api/auth/") ||
+    pathname === "/api/settings" ||
+    pathname === "/api/sensors/stream" ||
+    pathname === "/api/sensors/live"
+  ) {
     return NextResponse.next();
   }
 
@@ -78,5 +83,8 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  // Static assets under /public must bypass auth. Video files are listed
+  // explicitly: without them /videos/*.webm was treated as a protected page
+  // and 307-redirected to /login, so the landing-page hero video never loaded.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|webm|mp4|ogg|ogv)$).*)"],
 };

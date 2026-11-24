@@ -29,7 +29,7 @@ export function useSSEStream() {
 
     isConnecting.current = true;
     const store = useAppStore.getState();
-    const sse = new EventSource("/api/sensors/stream");
+    const sse = new EventSource("/api/sensors/stream", { withCredentials: true });
     eventSourceRef.current = sse;
 
     sse.onopen = () => {
@@ -50,7 +50,7 @@ export function useSSEStream() {
         console.log(`[SSE] Reconnecting in ${delay}ms (attempt ${retryCount.current}/${maxRetries})`);
         setTimeout(connect, delay);
       } else {
-        console.error("[SSE] Max reconnection attempts reached");
+        console.warn("[SSE] Reconnection paused after max attempts — will resume on window focus or network reconnect");
       }
     };
 
@@ -164,7 +164,11 @@ export function useSSEStream() {
     sse.addEventListener("inspection_completed", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        useAppStore.getState().setInspectionMeta(data.inspectionId, {
+        const st = useAppStore.getState();
+        // The dedicated inspection_phase event can be missed on reconnect;
+        // the completed event is self-sufficient for the final UI state.
+        st.setInspectionPhase(data.inspectionId, "complete", 100);
+        st.setInspectionMeta(data.inspectionId, {
           severity: data.severity,
           summary: data.summary,
           completedAt: data.timestamp,
@@ -182,7 +186,20 @@ export function useSSEStream() {
 
   useEffect(() => {
     connect();
+
+    const handleResume = () => {
+      if (!useAppStore.getState().sseConnected) {
+        retryCount.current = 0;
+        connect();
+      }
+    };
+
+    window.addEventListener("focus", handleResume);
+    window.addEventListener("online", handleResume);
+
     return () => {
+      window.removeEventListener("focus", handleResume);
+      window.removeEventListener("online", handleResume);
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
     };

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useRef, useMemo, useCallback } from "react";
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Tooltip, useMapEvents } from "react-leaflet";
+import React, { useEffect, useRef, useMemo, useCallback } from "react";
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import type { Coordinates } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -37,9 +37,26 @@ export interface MapPoint {
   popup?: React.ReactNode;
 }
 
+function RouteFitter({ path }: { path: Coordinates[] }) {
+  const map = useMap();
+  const signature = path.map((p) => `${p.lat},${p.lng}`).join(";");
+  useEffect(() => {
+    if (path.length < 2) return;
+    map.fitBounds(
+      path.map((p) => [p.lat, p.lng] as [number, number]),
+      { padding: [30, 30], maxZoom: 5 }
+    );
+    // Refit only when the mission geometry changes; live marker updates must
+    // not yank the viewport away from wherever the operator panned.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, signature]);
+  return null;
+}
+
 export const OceanMap = React.memo(function OceanMap({
   points,
   routes,
+  fitRoute,
   center = [15, 0],
   zoom = 2,
   height = "420px",
@@ -48,6 +65,7 @@ export const OceanMap = React.memo(function OceanMap({
 }: {
   points: MapPoint[];
   routes?: { id: string; path: Coordinates[]; color?: string }[];
+  fitRoute?: Coordinates[];
   center?: [number, number];
   zoom?: number;
   height?: string;
@@ -134,6 +152,7 @@ export const OceanMap = React.memo(function OceanMap({
           {...{ fetchPriority: "low" } as Record<string, unknown>}
         />
         {onViewportChange && <ViewportTracker />}
+        {fitRoute && fitRoute.length >= 2 && <RouteFitter path={fitRoute} />}
         {memoizedRoutes}
         {memoizedPoints}
       </MapContainer>

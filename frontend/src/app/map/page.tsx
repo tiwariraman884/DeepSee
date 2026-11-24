@@ -158,7 +158,12 @@ export default function MapPage() {
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="lg:col-span-3">
           <Card className="p-3">
-            <OceanMap points={points} routes={missionRoutes} height="560px" />
+            <OceanMap
+          points={points}
+          routes={missionRoutes}
+          fitRoute={droneDispatch?.path}
+          height="560px"
+        />
           </Card>
         </div>
         <div className="space-y-4">

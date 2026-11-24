@@ -37,6 +37,13 @@ app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "../public")));
 
+// API responses are live data; no-store stops the browser revalidating to 304,
+// which client fetches treat as a failure and leave the dashboard stale.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 // ─── Rate Limiting ───────────────────────────────────────────────────────────
 import { rateLimit } from "./lib/rateLimit";
 const apiLimiter = rateLimit(100, 60_000); // 100 requests per minute per IP
@@ -64,8 +71,18 @@ import demoRoutes       from "./routes/demo";
 import systemRoutes     from "./routes/system";
 import visionRoutes     from "./routes/vision";
 
-const authLimiter = rateLimit(5, 60_000); // 5 requests per minute for auth
-app.use("/api/auth",      authLimiter, authRoutes);
+const authLimiter = rateLimit(5, 60_000); // 5 requests per minute for credential endpoints
+// /me is fetched by both profile cards (twice more under StrictMode) and
+// /logout is not a guessing surface; limiting them at 5/min made normal
+// navigation answer 429 and look logged out.
+app.use(
+  "/api/auth",
+  (req, res, next) => {
+    if (req.path === "/me" || req.path === "/logout") return next();
+    return authLimiter(req, res, next);
+  },
+  authRoutes
+);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/drones",    dronesRoutes);

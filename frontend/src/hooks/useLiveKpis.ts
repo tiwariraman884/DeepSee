@@ -31,7 +31,7 @@ export function useLiveKpis(): { kpis: LiveKpis; lastSync: Date | null; connecte
 
   const fetchKpis = useCallback(async () => {
     try {
-      const res = await fetch("/api/dashboard/overview");
+      const res = await fetch("/api/dashboard/overview", { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
       setKpis({

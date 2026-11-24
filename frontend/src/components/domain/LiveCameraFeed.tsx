@@ -71,7 +71,8 @@ export function LiveCameraFeed() {
   const elapsed = (() => {
     const startMs = inspection?.startedAt ? Date.parse(inspection.startedAt) : NaN;
     if (Number.isNaN(startMs)) return "—";
-    const secs = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+    const endMs = inspection?.completedAt ? Date.parse(inspection.completedAt) : Date.now();
+    const secs = Math.max(0, Math.floor((endMs - startMs) / 1000));
     const m = Math.floor(secs / 60), s = secs % 60;
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   })();

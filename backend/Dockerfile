@@ -20,4 +20,9 @@ COPY .env.example ./.env
 
 EXPOSE 5000
 
-CMD ["npx", "tsx", "backend/src/server.ts"]
+# Run from /app/backend so the code's ../ml resolution (lib/python.ts,
+# lib/mlWorker.ts, lib/inspectionAI.ts) points at /app/ml, exactly as it does
+# when the backend is started from backend/ locally. Running from /app made
+# those paths resolve to /ml (absent) and silently degraded the ML pipeline.
+WORKDIR /app/backend
+CMD ["npx", "tsx", "src/server.ts"]

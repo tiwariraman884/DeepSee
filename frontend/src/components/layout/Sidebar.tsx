@@ -18,6 +18,7 @@ import {
   User,
   Cpu,
   Activity,
+  Gauge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserProfileCard } from "@/components/profile/UserProfileCard";
@@ -26,6 +27,7 @@ const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/ai-center", label: "AI Center", icon: Cpu },
   { href: "/map", label: "Ocean Map", icon: Map },
+  { href: "/sensors", label: "Live Sensors", icon: Gauge },
   { href: "/pollution", label: "Pollution", icon: AlertTriangle },
   { href: "/species", label: "Biodiversity", icon: Fish },
   { href: "/risk", label: "Risk Engine", icon: Brain },

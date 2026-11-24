@@ -10,6 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "seed": "npx tsx scripts/seed.ts",
+    "test": "node --test tests/ai-assistant.test.mjs",
     "a11y": "node scripts/a11y-audit.mjs",
     "a11y:ci": "node scripts/a11y-ci.mjs"
   },

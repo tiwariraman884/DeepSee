@@ -64,10 +64,13 @@ export function verifySessionToken(token: string): SessionPayload | null {
     const unsigned = `${header}.${body}`;
     const expectedSig = crypto.createHmac("sha256", getSecret()).update(unsigned).digest("base64url");
 
-    // Constant-time comparison
-    if (!crypto.timingSafeEqual(Buffer.from(sig, "base64url"), Buffer.from(expectedSig, "base64url"))) {
-      return null;
-    }
+    // Constant-time comparison. timingSafeEqual throws on length mismatch, so
+    // compare explicit buffers of equal length AFTER a length check — a
+    // truncated/oversized signature must be a clean rejection, not an exception.
+    const given = Buffer.from(sig, "base64url");
+    const expected = Buffer.from(expectedSig, "base64url");
+    if (given.length !== expected.length) return null;
+    if (!crypto.timingSafeEqual(given, expected)) return null;
 
     const payload: SessionPayload = JSON.parse(fromB64url(body));
     const now = Math.floor(Date.now() / 1000);

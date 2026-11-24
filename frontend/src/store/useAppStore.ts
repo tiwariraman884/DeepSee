@@ -94,6 +94,7 @@ interface AppState {
   fetchSummary: () => Promise<void>;
   addAlert: (alert: Alert) => void;
   setDroneDispatch: (d: DroneDispatchInfo | null) => void;
+  setInspection: (i: InspectionState | null) => void;
   updateDronePosition: (d: DronePositionInfo) => void;
   setInspectionPhase: (id: string, phase: string, progress?: number) => void;
   setInspectionMeta: (id: string, meta: Partial<Pick<InspectionState, "droneId" | "droneName" | "location" | "severity" | "summary" | "completedAt">>) => void;
@@ -189,6 +190,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { _alerts: [alert, ...state._alerts] };
     }),
   setDroneDispatch: (d) => set({ droneDispatch: d }),
+  setInspection: (i) => set({ inspection: i }),
   updateDronePosition: (d) => set((state) => ({ dronePositions: { ...state.dronePositions, [d.id]: d } })),
 
   setInspectionPhase: (id, phase, progress) =>
@@ -280,13 +282,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get()._loaded) return;
     try {
       const [pollutionRes, speciesRes, sensorsRes, alertsRes, dronesRes] = await Promise.all([
-        fetch("/api/pollution"),
-        fetch("/api/species"),
-        fetch("/api/sensors"),
+        // no-store: a cached 304 is not ok, and the fallbacks below would then
+        // replace real data with empty arrays for the rest of the session.
+        fetch("/api/pollution", { cache: "no-store" }),
+        fetch("/api/species", { cache: "no-store" }),
+        fetch("/api/sensors", { cache: "no-store" }),
         // Explicit small page — the dashboard renders every alert it receives,
         // so pulling the unbounded list produced 200+ cards on first paint.
-        fetch("/api/alerts?limit=25"),
-        fetch("/api/drones"),
+        fetch("/api/alerts?limit=25", { cache: "no-store" }),
+        fetch("/api/drones", { cache: "no-store" }),
       ]);
 
       const [{ pollution }, { species }, { sensors }, { alerts }, { drones }] = await Promise.all([
@@ -306,7 +310,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         _loaded: true,
       });
     } catch {
-      set({ _loaded: true });
+      // Leave _loaded false so a remount retries; marking it loaded here made a
+      // single failed fetch (backend down) permanent for the session.
     }
   },
 

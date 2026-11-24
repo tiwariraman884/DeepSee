@@ -11,6 +11,11 @@ interface RateLimitEntry {
 
 const clients = new Map<string, RateLimitEntry>();
 
+// Each limiter instance gets its own counter namespace. Keying by IP alone made
+// the 5/min auth limiter count every general API request, so one dashboard load
+// exhausted it and /api/auth/me answered 429.
+let nextLimiterId = 0;
+
 // Clean up expired entries every minute
 setInterval(() => {
   const now = Date.now();
@@ -22,8 +27,9 @@ setInterval(() => {
 }, 60_000);
 
 export function rateLimit(maxRequests = 100, windowMs = 60_000) {
+  const limiterId = ++nextLimiterId;
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = req.ip || req.socket.remoteAddress || "unknown";
+    const key = `${limiterId}:${req.ip || req.socket.remoteAddress || "unknown"}`;
     const now = Date.now();
 
     let entry = clients.get(key);

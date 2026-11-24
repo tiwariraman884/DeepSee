@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Send } from "lucide-react";
 import { type AssistantMessage, type AssistantChartData } from "@/features/ai-assistant/assistant";
+import { requestAssistant } from "@/features/ai-assistant/client";
+import { MAX_QUERY_LENGTH } from "@/features/ai-assistant/schema";
 import { ChatBubble } from "@/components/domain/ChatBubble";
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/States";
@@ -27,6 +29,7 @@ export function AssistantChat() {
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [erroredQuery, setErroredQuery] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function send(text: string) {
     const trimmed = text.trim();
@@ -47,28 +50,28 @@ export function AssistantChat() {
     setInput("");
     setPending(true);
     setErroredQuery(null);
+    setErrorMessage(null);
     try {
-      const res = await fetch("/api/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
-      });
-      if (!res.ok) throw new Error("request failed");
-      const data = await res.json();
-      setMessages((m) =>
-        m.map((msg) =>
-          msg.id === typingMsg.id
-            ? {
-                ...typingMsg,
-                content: data.answer,
-                chartData: data.chartData as AssistantChartData | undefined,
-              }
-            : msg
-        )
-      );
-    } catch {
+      const outcome = await requestAssistant(trimmed);
+      if (outcome.ok) {
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === typingMsg.id
+              ? {
+                  ...typingMsg,
+                  content: outcome.result.answer,
+                  chartData: outcome.result.chartData as AssistantChartData | undefined,
+                }
+              : msg
+          )
+        );
+        return;
+      }
+
+      // Remove the placeholder and show WHY it failed (session, rate limit, …).
       setMessages((m) => m.filter((msg) => msg.id !== typingMsg.id));
       setErroredQuery(trimmed);
+      setErrorMessage(outcome.message);
     } finally {
       setPending(false);
     }
@@ -95,12 +98,18 @@ export function AssistantChat() {
         ))}
         </div>
         {erroredQuery && (
-          <ErrorState
-            onRetry={() => {
-              setErroredQuery(null);
-              send(erroredQuery);
-            }}
-          />
+          <div role="alert" className="mt-2">
+            {errorMessage && (
+              <p className="mb-1 text-xs text-danger">{errorMessage}</p>
+            )}
+            <ErrorState
+              onRetry={() => {
+                setErroredQuery(null);
+                setErrorMessage(null);
+                send(erroredQuery);
+              }}
+            />
+          </div>
         )}
       <form
         onSubmit={(e) => {
@@ -112,6 +121,7 @@ export function AssistantChat() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          maxLength={MAX_QUERY_LENGTH}
           disabled={pending}
           placeholder="Ask about the ocean..."
           aria-label="Ask the assistant about the ocean"

@@ -13,6 +13,7 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - PYTHON_BIN=/usr/local/bin/python
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
     volumes:
       - backend-data:/app/.data
     restart: unless-stopped
@@ -26,10 +27,23 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        # Needed at build time: the build evaluates rewrites and prerenders
+        # route shells (the session module throws without a secret).
+        - AUTH_SECRET=${AUTH_SECRET}
+        - BACKEND_URL=http://backend:5000
+        - NEXT_PUBLIC_CARTO_BASMAPS_KEY=${NEXT_PUBLIC_CARTO_BASMAPS_KEY:-}
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:5000
+      # Server-side rewrite target. Inside compose, "localhost" is the frontend
+      # container itself — the backend is reachable by its service name.
+      - BACKEND_URL=http://backend:5000
+      # The browser calls same-origin /api/* (proxied by Next), so this stays
+      # relative; an absolute browser URL would bypass the session cookie.
+      - NEXT_PUBLIC_API_URL=
+      - AUTH_SECRET=${AUTH_SECRET}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - NEXT_PUBLIC_CARTO_BASMAPS_KEY=${NEXT_PUBLIC_CARTO_BASMAPS_KEY:-}
     depends_on:
       - backend

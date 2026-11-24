@@ -6,7 +6,6 @@
  */
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useSSEStream } from "@/hooks/useSSEStream";
 import { useAppStore } from "@/store/useAppStore";
 import { Activity, Radio, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -41,7 +40,6 @@ const numberOrUndefined = (v: unknown): number | undefined =>
   typeof v === "number" && Number.isFinite(v) ? v : undefined;
 
 export function LivePipelineStatus() {
-  useSSEStream();
   const sseConnected = useAppStore((s) => s.sseConnected);
   const sensors = useAppStore((s) => s._sensors);
   const alerts = useAppStore((s) => s._alerts);

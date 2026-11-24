@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Bot, X, Send, MessageSquare } from "lucide-react";
 import { type AssistantMessage } from "@/features/ai-assistant/assistant";
+import { requestAssistant } from "@/features/ai-assistant/client";
+import { MAX_QUERY_LENGTH } from "@/features/ai-assistant/schema";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 
@@ -46,19 +48,18 @@ export function FloatingAssistant() {
     setInput("");
     setPending(true);
     try {
-      const res = await fetch("/api/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
-      });
-      if (!res.ok) throw new Error("request failed");
-      const data = await res.json();
-      setMessages((m) =>
-        m.map((msg) => (msg.id === typingMsg.id ? { ...typingMsg, content: data.answer } : msg))
-      );
-    } catch {
+      const outcome = await requestAssistant(trimmed);
+      if (outcome.ok) {
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === typingMsg.id ? { ...typingMsg, content: outcome.result.answer } : msg
+          )
+        );
+        return;
+      }
       setMessages((m) => m.filter((msg) => msg.id !== typingMsg.id));
-      toastError("The assistant is temporarily unavailable. Please try again.");
+      // Surface the actual reason (session expired / rate limited / outage).
+      toastError(outcome.message);
     } finally {
       setPending(false);
     }
@@ -132,6 +133,7 @@ export function FloatingAssistant() {
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                maxLength={MAX_QUERY_LENGTH}
                 disabled={pending}
                 placeholder="Ask about the ocean…"
                 aria-label="Ask the AI Assistant about the ocean"

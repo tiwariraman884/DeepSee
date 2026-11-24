@@ -36,6 +36,7 @@ const OceanMapInner = dynamic(
 export function OceanMap(props: {
   points: MapPoint[];
   routes?: { id: string; path: Coordinates[]; color?: string }[];
+  fitRoute?: Coordinates[];
   center?: [number, number];
   zoom?: number;
   height?: string;

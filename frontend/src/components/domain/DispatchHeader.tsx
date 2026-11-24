@@ -129,6 +129,9 @@ export function DispatchHeader() {
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5" data-testid="dispatch-status-pills">
         <Pill tone={complete ? "green" : "orange"}>{PHASE_LABEL[phase] ?? phase.toUpperCase()}</Pill>
         {distance != null && <Pill tone="cyan">{distance} km</Pill>}
+        {!complete && inspection?.selection?.etaDisplay && (
+          <Pill tone="neutral">ETA {inspection.selection.etaDisplay}</Pill>
+        )}
         {battery != null && (
           <Pill tone={battery < 30 ? "red" : "neutral"}>{battery}% Battery</Pill>
         )}

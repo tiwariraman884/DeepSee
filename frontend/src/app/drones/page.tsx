@@ -9,6 +9,7 @@ import { DroneCard } from "@/components/domain/DroneCard";
 import { LiveCameraFeed } from "@/components/domain/LiveCameraFeed";
 import { InspectionConsole } from "@/components/domain/InspectionConsole";
 import { DispatchHeader } from "@/components/domain/DispatchHeader";
+import { ManualDispatchPanel } from "@/components/domain/ManualDispatchPanel";
 import { droneStatusMeta } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { Drone, Mission } from "@/types";
@@ -25,6 +26,8 @@ export default function DronesPage() {
   const [missions, setMissions] = useState<Mission[]>([]);
   const droneDispatch = useAppStore((s) => s.droneDispatch);
   const dronePositions = useAppStore((s) => s.dronePositions);
+  const inspection = useAppStore((s) => s.inspection);
+  const missionComplete = inspection?.phase === "complete";
 
   useEffect(() => {
     Promise.all([
@@ -82,19 +85,27 @@ export default function DronesPage() {
 
   // Anomaly target marker (red pulsing point)
   const anomalyMarker =
-    droneDispatch?.targetLat && droneDispatch?.targetLng
+    droneDispatch?.targetLat != null && droneDispatch?.targetLng != null
       ? [
           {
             id: "anomaly-target",
             coordinates: { lat: droneDispatch.targetLat, lng: droneDispatch.targetLng },
             color: "#ef4444",
             radius: 16,
-            label: `🚨 Anomaly: ${droneDispatch.location}`,
+            label: missionComplete
+              ? `✅ Inspected: ${droneDispatch.location}`
+              : `🚨 Anomaly: ${droneDispatch.location}`,
             popup: (
               <div>
-                <p className="font-bold text-red-400">🚨 Active Anomaly</p>
+                <p className={cn("font-bold", missionComplete ? "text-emerald-400" : "text-red-400")}>
+                  {missionComplete ? "✅ Inspected Anomaly" : "🚨 Active Anomaly"}
+                </p>
                 <p className="text-xs">{droneDispatch.location}</p>
-                <p className="text-xs">Drone inbound • ETA ~60s</p>
+                <p className="text-xs">
+                  {missionComplete
+                    ? `Inspection complete${inspection?.severity ? ` · ${inspection.severity} severity` : ""}`
+                    : "Drone inbound"}
+                </p>
               </div>
             ),
           },
@@ -108,10 +119,10 @@ export default function DronesPage() {
     const routes: { id: string; path: { lat: number; lng: number }[]; color?: string }[] = [];
 
     if (
-      droneDispatch?.targetLat &&
-      droneDispatch?.targetLng &&
-      droneDispatch?.originLat &&
-      droneDispatch?.originLng
+      droneDispatch?.targetLat != null &&
+      droneDispatch?.targetLng != null &&
+      droneDispatch?.originLat != null &&
+      droneDispatch?.originLng != null
     ) {
       // Live drone position if available
       const liveDrone = dronePositions[droneDispatch.droneId];
@@ -163,11 +174,18 @@ export default function DronesPage() {
               icon={<Navigation className="h-4 w-4" />}
               subtitle={
                 droneDispatch
-                  ? "Active dispatch — orange path = mission route"
+                  ? missionComplete
+                    ? "Completed dispatch — orange path = mission route"
+                    : "Active dispatch — orange path = mission route"
                   : "Fleet monitoring mode"
               }
             />
-            <OceanMap points={allMapPoints} routes={missionRoutes} height="460px" />
+            <OceanMap
+              points={allMapPoints}
+              routes={missionRoutes}
+              fitRoute={droneDispatch?.path}
+              height="460px"
+            />
           </Card>
         </div>
         <div className="order-1 space-y-4 lg:order-2">
@@ -175,10 +193,15 @@ export default function DronesPage() {
             <CardHeader
               title="Live Camera Feed"
               icon={<Camera className="h-4 w-4" />}
-              subtitle="Simulated ROV feed · tied to active inspection"
+              subtitle={
+                missionComplete
+                  ? "Simulated ROV feed · tied to completed inspection"
+                  : "Simulated ROV feed · tied to active inspection"
+              }
             />
             <LiveCameraFeed />
           </Card>
+          <ManualDispatchPanel />
           <Card>
             <CardHeader title="Fleet Status" icon={<Radio className="h-4 w-4" />} />
             <div className="space-y-2">

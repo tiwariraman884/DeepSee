@@ -71,13 +71,13 @@ router.get("/", requireAuth, (req, res) => {
 });
 
 // ─── GET /api/sensors/stream — SSE real-time stream ──────────────────────────
-router.get("/stream", requireAuth, (req, res) => {
+router.get("/stream", (req, res) => {
   const clientId = sseManager.addClient(res);
   req.on("close", () => sseManager.removeClient(clientId));
 });
 
 // ─── GET /api/sensors/live — Legacy SSE (backwards compatible) ────────────────
-router.get("/live", requireAuth, (req, res) => {
+router.get("/live", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");

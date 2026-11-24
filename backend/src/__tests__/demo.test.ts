@@ -18,6 +18,7 @@ import cookieParser from "cookie-parser";
 import demoRoutes from "../routes/demo";
 import {
   initSensorPipeline,
+  getDroneDispatcher,
   resetSensorPipelineForTests,
   shutdownSensorPipelineForTests,
 } from "../lib/sensorPipeline";
@@ -44,15 +45,15 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  // Quiesce: the previous suite's in-flight ML callbacks (300–500ms under
-  // load) can publish anomalies after our reset and re-arm the guard.
-  // Let stragglers land, THEN reset + drain — same pattern as pipeline.test.
-  await new Promise((r) => setTimeout(r, 1000));
-  // Clean slate: cancel any pending timers from previous tests AND drain
-  // queued EventBus redeliveries — otherwise a duplicate anomaly delivery can
-  // re-arm the mission guard after the reset and flake the next test.
+  await new Promise((r) => setTimeout(r, 1200));
   resetSensorPipelineForTests();
   eventBus.clear();
+  try {
+    const db = getDb();
+    db.prepare("UPDATE drones SET status = 'idle', battery = 100").run();
+    db.prepare("DELETE FROM drone_inspections WHERE sensor_id = 'sensor_001'").run();
+  } catch {}
+  resetSensorPipelineForTests();
 });
 
 afterEach(() => {
@@ -62,17 +63,44 @@ afterEach(() => {
 });
 
 describe("POST /api/demo/emergency-scenario", () => {
-  it("starts a scenario successfully (202) with correct fixture sensor", async () => {
+  /**
+   * The scenario deliberately targets a RANDOM online sensor other than the
+   * last inspected one (pickScenarioSensor → ORDER BY RANDOM()), so tests must
+   * assert the CONTRACT — the response sensor is a real station, differs from
+   * the previous target, and the inspection row matches it — never a hardcoded
+   * "sensor_001". Pinning a random outcome made these tests fail by design
+   * (sensor_009 vs sensor_001), independently of any code change.
+   */
+  function previousSensorId(db: any): string {
+    const row = db
+      .prepare("SELECT sensor_id FROM drone_inspections ORDER BY started_at DESC LIMIT 1")
+      .get() as { sensor_id?: string } | undefined;
+    return row?.sensor_id ?? "";
+  }
+
+  /** Look up a station by id so assertions use its own metadata. */
+  function station(db: any, id: string): { id: string; name: string } {
+    return db.prepare("SELECT id, name FROM sensors WHERE id = ?").get(id) as any;
+  }
+
+  it("starts a scenario successfully (202) with a real target station", async () => {
     const db = getDb();
     db.prepare("UPDATE drones SET status = 'idle', battery = MAX(battery, 90)").run();
 
+    const before = previousSensorId(db);
     const res = await request(app).post("/api/demo/emergency-scenario").send({});
 
     expect(res.status).toBe(202);
     expect(res.body.status).toBe("started");
     expect(res.body.scenarioId).toBeTruthy();
-    expect(res.body.sensor.id).toBe("sensor_001");
-    expect(res.body.sensor.name).toBe("Temp Station Alpha");
+
+    // The chosen station is a real row in the sensor registry…
+    const chosen = station(db, res.body.sensor.id);
+    expect(chosen).toBeTruthy();
+    expect(res.body.sensor.name).toBe(chosen.name);
+    // …and the scenario avoids repeating the previous target.
+    if (before) expect(res.body.sensor.id).not.toBe(before);
+
     expect(res.body.drone.name).toBeTruthy();
     expect(res.body.drone.battery).toBeGreaterThanOrEqual(35);
   }, 15000);
@@ -85,12 +113,11 @@ describe("POST /api/demo/emergency-scenario", () => {
     const first = await request(app).post("/api/demo/emergency-scenario").send({});
     expect(first.status).toBe(202);
 
-    // Wait for the inspection to be created (async pipeline)
+    // Wait for the inspection to be created and armed in dispatcher
     const deadline = Date.now() + 5_000;
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 100));
-      const count = (db.prepare("SELECT COUNT(*) c FROM drone_inspections").get() as any).c;
-      if (count > 0) break;
+      if (getDroneDispatcher()?.isInspectionActive()) break;
+      await new Promise((r) => setTimeout(r, 50));
     }
 
     // Second scenario should be rejected (inspection still active)
@@ -163,15 +190,16 @@ describe("POST /api/demo/emergency-scenario", () => {
 
     const started = await request(app).post("/api/demo/emergency-scenario").send({});
     expect(started.status).toBe(202);
+    const targetSensorId = started.body.sensor.id as string;
 
-    // Wait for the dispatch (async ML + dispatch).
+    // Wait for the dispatch (async ML + dispatch) for THIS scenario's target.
     const deadline = Date.now() + 10_000;
     let inspection: any = null;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 200));
       inspection = db.prepare(
-        "SELECT * FROM drone_inspections WHERE sensor_id = 'sensor_001' ORDER BY started_at DESC LIMIT 1"
-      ).get() as any;
+        "SELECT * FROM drone_inspections WHERE sensor_id = ? ORDER BY started_at DESC LIMIT 1"
+      ).get(targetSensorId) as any;
       if (inspection && Date.parse(inspection.started_at) >= Date.now() - 30_000) break;
       inspection = null;
     }
@@ -194,6 +222,8 @@ describe("POST /api/demo/emergency-scenario", () => {
     const started = await request(app).post("/api/demo/emergency-scenario").send({});
     expect(started.status).toBe(202);
     const scenarioId = started.body.scenarioId as string;
+    const targetSensorId = started.body.sensor.id as string;
+    const targetSensorName = started.body.sensor.name as string;
 
     // Wait for the inspection row created by THIS scenario (async ML +
     // dispatch) — ignore inspections left over from earlier tests.
@@ -205,8 +235,8 @@ describe("POST /api/demo/emergency-scenario", () => {
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 200));
       const candidate = db.prepare(
-        "SELECT * FROM drone_inspections WHERE sensor_id = 'sensor_001' ORDER BY started_at DESC LIMIT 1"
-      ).get() as any;
+        "SELECT * FROM drone_inspections WHERE sensor_id = ? ORDER BY started_at DESC LIMIT 1"
+      ).get(targetSensorId) as any;
       if (candidate && !knownIds.has(candidate.id)) {
         inspection = candidate;
         break;
@@ -219,7 +249,7 @@ describe("POST /api/demo/emergency-scenario", () => {
     expect(viaScenario.status).toBe(200);
     expect(viaScenario.body.inspection.id).toBe(inspection.id);
     expect(viaScenario.body.inspection.drone_name).toBeTruthy();
-    expect(viaScenario.body.inspection.sensor_name).toBe("Temp Station Alpha");
+    expect(viaScenario.body.inspection.sensor_name).toBe(targetSensorName);
 
     // Direct inspection lookup must also work (frontend's preferred path).
     const viaInspection = await request(app).get(`/api/demo/inspection/${inspection.id}`);
@@ -242,6 +272,8 @@ describe("end-to-end: scenario → anomaly → alert → dispatch → inspection
     // Trigger the scenario
     const res = await request(app).post("/api/demo/emergency-scenario").send({});
     expect(res.status).toBe(202);
+    const targetSensorId = res.body.sensor.id as string;
+    const targetSensorName = res.body.sensor.name as string;
 
     // Wait for the inspection to be created (async pipeline)
     const deadline = Date.now() + 10_000;
@@ -260,8 +292,8 @@ describe("end-to-end: scenario → anomaly → alert → dispatch → inspection
 
     expect(after).toBeGreaterThan(before);
     expect(latest.phase).toBe("en_route");
-    expect(latest.sensor_id).toBe("sensor_001");
-    expect(latest.sensor_name).toBe("Temp Station Alpha");
+    expect(latest.sensor_id).toBe(targetSensorId);
+    expect(latest.sensor_name).toBe(targetSensorName);
     expect(latest.drone_name).toBeTruthy();
     expect(latest.selection_reason).toContain("nearest eligible drone");
 
@@ -272,7 +304,7 @@ describe("end-to-end: scenario → anomaly → alert → dispatch → inspection
     ).get(latest.alert_id) as any;
     expect(alert).toBeTruthy();
     expect(alert.type).toBe("critical");
-    expect(alert.location).toBe("Temp Station Alpha");
+    expect(alert.location).toBe(targetSensorName);
     expect(alert.category).toBe("pollution");
   }, 20000);
 });

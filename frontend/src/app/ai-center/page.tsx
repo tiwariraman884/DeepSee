@@ -4,7 +4,7 @@ import { Download } from "lucide-react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { LivePipelineStatus } from "@/components/pipeline/LivePipelineStatus";
 import { AnomalyDetector } from "@/components/ai/AnomalyDetector";
-import { PollutionForecast } from "@/components/ai/PollutionForecast";
+import { PollutionForecastEnhanced } from "@/components/ai/PollutionForecastEnhanced";
 import { EmergencyScenario } from "@/components/domain/EmergencyScenario";
 
 export default function AICenterPage() {
@@ -38,7 +38,7 @@ export default function AICenterPage() {
             <AnomalyDetector />
           </div>
           <div className="w-full">
-            <PollutionForecast />
+            <PollutionForecastEnhanced />
           </div>
         </div>
       </div>

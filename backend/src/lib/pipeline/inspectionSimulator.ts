@@ -186,7 +186,7 @@ export class InspectionSimulator {
 
     try {
       getDb().prepare(
-        `UPDATE drone_inspections SET phase = 'complete', severity = ?, threat_json = ?, summary = ?, completed_at = ? WHERE id = ?`
+        `UPDATE drone_inspections SET phase = 'complete', progress = 100, progress_label = 'Inspection complete', severity = ?, threat_json = ?, summary = ?, completed_at = ? WHERE id = ?`
       ).run(severity, JSON.stringify(findings), summary, completedAt, inspectionId);
     } catch { /* ignore */ }
 

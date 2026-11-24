@@ -15,8 +15,8 @@
 import { Router } from "express";
 import { eventBus, TOPICS, SensorReadingEvent } from "../lib/eventBus";
 import { getDb } from "../db";
-import { selectDrone, MIN_BATTERY_PCT } from "../lib/droneSelection";
-import { requireAuth, requireAdmin } from "../lib/authMiddleware";
+import { selectDrone, MIN_BATTERY_PCT, formatEta } from "../lib/droneSelection";
+import { requireAuth } from "../lib/authMiddleware";
 import { getDroneDispatcher } from "../lib/sensorPipeline";
 import { mlWorker } from "../lib/mlWorker";
 
@@ -26,36 +26,37 @@ const router = Router();
 // The pipeline runs async: the inspection row is created ~100–500ms AFTER the
 // scenario is accepted, so the scenarioId can never be embedded in the
 // inspection id. Instead we record each accepted scenario's start time and
-// resolve the first fixture-sensor inspection at/after that moment.
+// target sensor, then resolve the first matching inspection at/after it.
 // (Matching by ID prefix is broken: millisecond timestamps differ between
 // the accept call and the dispatch — the old LIKE lookup could never match.)
-const scenarioStarts = new Map<string, number>();
+type ScenarioStart = { startedAtMs: number; sensorId: string };
+const scenarioStarts = new Map<string, ScenarioStart>();
 
-function rememberScenario(scenarioId: string, startedAtMs: number): void {
-  scenarioStarts.set(scenarioId, startedAtMs);
+function rememberScenario(scenarioId: string, startedAtMs: number, sensorId: string): void {
+  scenarioStarts.set(scenarioId, { startedAtMs, sensorId });
   // Bounded: drop entries older than 10 minutes.
   const cutoff = Date.now() - 10 * 60_000;
-  for (const [key, ts] of scenarioStarts) {
-    if (ts < cutoff) scenarioStarts.delete(key);
+  for (const [key, entry] of scenarioStarts) {
+    if (entry.startedAtMs < cutoff) scenarioStarts.delete(key);
   }
 }
 
 function findInspectionForScenario(db: any, scenarioId: string): any | null {
   const registered = scenarioStarts.get(scenarioId);
-  if (registered !== undefined) {
+  if (registered) {
     // In-process registry: same clock as the inspection timestamps, so an
     // exact lower bound is correct — no tolerance window that could admit an
     // older inspection from a previous scenario.
-    const sinceIso = new Date(registered).toISOString();
+    const sinceIso = new Date(registered.startedAtMs).toISOString();
     return (db.prepare(
       `SELECT * FROM drone_inspections
        WHERE sensor_id = ? AND started_at >= ?
        ORDER BY started_at ASC LIMIT 1`
-    ).get(DEMO_SENSOR_ID, sinceIso) as any) ?? null;
+    ).get(registered.sensorId, sinceIso) as any) ?? null;
   }
   // Legacy fallback for ids from before the registry (or another process):
   // scenario ids look like `scenario-<epochMs>-<rand>`, with a small
-  // tolerance for clock skew.
+  // tolerance for clock skew. Those scenarios always targeted sensor_001.
   const m = /^scenario-(\d{10,})-/.exec(String(scenarioId));
   if (!m) return null;
   const sinceIso = new Date(Number(m[1]) - 10_000).toISOString();
@@ -63,7 +64,7 @@ function findInspectionForScenario(db: any, scenarioId: string): any | null {
     `SELECT * FROM drone_inspections
      WHERE sensor_id = ? AND started_at >= ?
      ORDER BY started_at ASC LIMIT 1`
-  ).get(DEMO_SENSOR_ID, sinceIso) as any) ?? null;
+  ).get(LEGACY_DEMO_SENSOR_ID, sinceIso) as any) ?? null;
 }
 
 function buildScenarioStatus(db: any, inspection: any, scenarioId: string) {
@@ -90,8 +91,8 @@ function buildScenarioStatus(db: any, inspection: any, scenarioId: string) {
 }
 
 // ─── Deterministic Sensor Fixture ────────────────────────────────────────────
-const DEMO_SENSOR_ID = "sensor_001";
-const DEMO_SENSOR_NAME = "Temp Station Alpha";
+// Scenario IDs minted before multi-target selection always targeted this sensor.
+const LEGACY_DEMO_SENSOR_ID = "sensor_001";
 const DEMO_ANOMALY_READING = {
   temperature: 3.1,
   ph: 5.8,
@@ -101,12 +102,38 @@ const DEMO_ANOMALY_READING = {
 };
 
 /**
+ * Pick a target sensor that is different from the most recent inspection.
+ * The scenario injects the same anomaly values into whichever station is
+ * chosen, so each completed run leaves the fleet at a different place.
+ */
+function pickScenarioSensor(db: any): { id: string; name: string; lat: number; lng: number } | null {
+  const last = db.prepare(
+    "SELECT sensor_id FROM drone_inspections ORDER BY started_at DESC LIMIT 1"
+  ).get() as { sensor_id?: string } | undefined;
+  const lastId = last?.sensor_id ?? "";
+
+  const next = db.prepare(
+    `SELECT id, name, lat, lng FROM sensors
+     WHERE id != ? AND online = 1 AND lat IS NOT NULL AND lng IS NOT NULL
+     ORDER BY RANDOM() LIMIT 1`
+  ).get(lastId) as any;
+  if (next) return next;
+
+  // Fallback: allow an offline station rather than repeating the last target.
+  return (db.prepare(
+    `SELECT id, name, lat, lng FROM sensors
+     WHERE id != ? AND lat IS NOT NULL AND lng IS NOT NULL
+     ORDER BY RANDOM() LIMIT 1`
+  ).get(lastId) as any) ?? null;
+}
+
+/**
  * POST /api/demo/emergency-scenario
  *
  * Starts a controlled emergency scenario using the real pipeline.
  * Returns immediately — the workflow runs asynchronously.
  */
-router.post("/emergency-scenario", requireAdmin, (req, res) => {
+router.post("/emergency-scenario", requireAuth, (req, res) => {
   console.log("[Demo] Emergency scenario request received");
   try {
   // ── 1. Check ML worker availability ──────────────────────────────────────
@@ -134,17 +161,17 @@ router.post("/emergency-scenario", requireAdmin, (req, res) => {
     });
   }
 
-  // ── 3. Verify drone eligibility (using existing selection logic) ─────────
+  // ── 3. Pick a target different from the last mission, then verify a drone ─
   const db = getDb();
-  const sensor = db.prepare("SELECT id, name, lat, lng FROM sensors WHERE id = ?").get(DEMO_SENSOR_ID) as any;
+  const sensor = pickScenarioSensor(db);
   if (!sensor) {
-    console.log(`[Demo] Emergency scenario failed: sensor fixture '${DEMO_SENSOR_ID}' not found`);
+    console.log("[Demo] Emergency scenario failed: no sensor location available");
     return res.status(500).json({
       status: "error",
       success: false,
       code: "SCENARIO_START_FAILED",
       reason: "sensor_not_found",
-      message: `Demo sensor fixture '${DEMO_SENSOR_ID}' not found in database.`,
+      message: "No sensor location is available for the scenario.",
     });
   }
 
@@ -169,11 +196,11 @@ router.post("/emergency-scenario", requireAdmin, (req, res) => {
   const scenarioId = `scenario-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const timestamp = new Date().toISOString();
 
-  console.log(`[Demo] Sensor input prepared: ${DEMO_SENSOR_ID} (${DEMO_SENSOR_NAME})`);
+  console.log(`[Demo] Sensor input prepared: ${sensor.id} (${sensor.name})`);
 
   const sensorEvent: SensorReadingEvent = {
-    sensorId: DEMO_SENSOR_ID,
-    sensorName: DEMO_SENSOR_NAME,
+    sensorId: sensor.id,
+    sensorName: sensor.name,
     ...DEMO_ANOMALY_READING,
     timestamp,
     source: "simulated",
@@ -186,14 +213,14 @@ router.post("/emergency-scenario", requireAdmin, (req, res) => {
 
   // ── 5. Return immediately (async pipeline runs in background) ───────────
   console.log(`[Demo] Emergency scenario accepted: ${scenarioId} (drone ${selection.selected.name})`);
-  rememberScenario(scenarioId, Date.now());
+  rememberScenario(scenarioId, Date.now(), sensor.id);
   return res.status(202).json({
     status: "started",
     scenarioId,
     message: "Emergency ocean scenario started",
     sensor: {
-      id: DEMO_SENSOR_ID,
-      name: DEMO_SENSOR_NAME,
+      id: sensor.id,
+      name: sensor.name,
     },
     drone: {
       name: selection.selected.name,
@@ -236,23 +263,28 @@ router.get("/scenario/:id", requireAuth, (req, res) => {
 /**
  * GET /api/demo/active-mission
  *
- * Current autonomous-response mission for late-joining clients (a tab opened
- * mid-mission missed the live `drone_dispatch` SSE event). Derived from the
- * persisted inspection row — including the full decided searoute from
- * `route_json` — so map/drone pages can render the path + position without
- * having observed the original dispatch broadcast.
+ * Latest autonomous-response mission for late-joining clients. A tab opened
+ * mid-mission missed the live `drone_dispatch` SSE event; a tab opened after
+ * completion missed every event. Both hydrate from the persisted inspection
+ * row, including the full decided searoute and the evidence findings.
+ *
+ * Completed missions stay available for 30 minutes so the Drone Center can
+ * show the finished dispatch instead of falling back to an empty fleet view.
  */
 router.get("/active-mission", requireAuth, (_req, res) => {
   const db = getDb();
   try {
+    const cutoff = new Date(Date.now() - 30 * 60_000).toISOString();
     const inspection = db.prepare(
       `SELECT * FROM drone_inspections
-       WHERE phase IN ('en_route', 'arrived', 'inspecting')
+       WHERE (phase IN ('en_route', 'arrived', 'inspecting') AND started_at >= ?)
+          OR (phase IN ('complete', 'aborted') AND completed_at >= ?)
        ORDER BY started_at DESC LIMIT 1`
-    ).get() as any;
+    ).get(cutoff, cutoff) as any;
     if (!inspection) {
       return res.json({ active: false });
     }
+
     let path: { lat: number; lng: number }[] = [];
     try {
       const parsed = JSON.parse(inspection.route_json ?? "[]");
@@ -262,29 +294,78 @@ router.get("/active-mission", requireAuth, (_req, res) => {
         );
       }
     } catch { /* malformed route → no path, mission still reported */ }
+
+    let findings: { kind: string; label: string; confidence: number; detail: string }[] = [];
+    try {
+      const parsed = JSON.parse(inspection.threat_json ?? "[]");
+      if (Array.isArray(parsed)) {
+        findings = parsed.filter(
+          (f: any) =>
+            f &&
+            typeof f.kind === "string" &&
+            typeof f.label === "string" &&
+            typeof f.confidence === "number" &&
+            typeof f.detail === "string"
+        );
+      }
+    } catch { /* malformed findings → report the mission without them */ }
+
+    const drone = db.prepare(
+      "SELECT id, name, status, battery, lat, lng FROM drones WHERE id = ?"
+    ).get(inspection.drone_id) as any;
+    const etaSeconds = Number(inspection.eta_seconds);
+    const etaDisplay = Number.isFinite(etaSeconds) ? formatEta(etaSeconds) : null;
+    const active = ["en_route", "arrived", "inspecting"].includes(inspection.phase);
+
     return res.json({
-      active: true,
+      active,
       inspection: {
         id: inspection.id,
         phase: inspection.phase,
-        progress: inspection.progress,
+        progress: inspection.phase === "complete" ? 100 : inspection.progress,
+        progressLabel: inspection.progress_label,
         droneId: inspection.drone_id,
         droneName: inspection.drone_name,
         sensorId: inspection.sensor_id,
         sensorName: inspection.sensor_name,
         startedAt: inspection.started_at,
+        completedAt: inspection.completed_at,
+        severity: inspection.severity,
+        summary: inspection.summary,
+        findings,
+        selection: {
+          distanceKm: inspection.distance_km,
+          etaDisplay,
+          reason: inspection.selection_reason,
+        },
       },
       dispatch: {
+        reason: "anomaly_detected",
+        targetSensor: inspection.sensor_id,
+        location: inspection.sensor_name,
         droneId: inspection.drone_id,
         droneName: inspection.drone_name,
-        location: inspection.sensor_name,
-        targetSensor: inspection.sensor_id,
+        eta_seconds: etaSeconds,
+        eta_display: etaDisplay,
+        distance_km: inspection.distance_km,
+        selection_reason: inspection.selection_reason,
+        timestamp: inspection.started_at,
         targetLat: inspection.target_lat,
         targetLng: inspection.target_lng,
         originLat: inspection.origin_lat,
         originLng: inspection.origin_lng,
         path,
       },
+      drone: drone
+        ? {
+            id: drone.id,
+            name: drone.name,
+            status: drone.status,
+            battery: drone.battery,
+            lat: drone.lat,
+            lng: drone.lng,
+          }
+        : null,
     });
   } catch (err: any) {
     return res.status(500).json({ error: "Failed to read active mission" });
