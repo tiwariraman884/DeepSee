@@ -72,6 +72,20 @@ export class SensorConsumer {
             turbidity: reading.turbidity ?? 0.5,
           });
 
+          // A failed inference is not evidence of normal water conditions.
+          if (mlResult.status !== "success") {
+            this.persistReading(reading);
+            sseManager.broadcast("sensor_update", {
+              sensorId: reading.sensorId, sensorName: reading.sensorName, reading,
+              mlReady: false, modelStatus: "unavailable",
+              source: reading.source ?? null,
+              deviceId: reading.deviceId ?? null,
+              ts: reading.timestamp,
+            });
+            console.warn("[Pipeline] ML inference unavailable; telemetry stored without verdict");
+            return;
+          }
+
           const totalMs = Date.now() - t0;
 
           // Runtime telemetry (bounded, in-memory): model round-trip vs.

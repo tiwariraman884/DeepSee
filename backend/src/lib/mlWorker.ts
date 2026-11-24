@@ -70,6 +70,20 @@ class MLWorker extends EventEmitter {
 
   /** Start the Python ML server process */
   async start(): Promise<void> {
+    // Vercel injects ML_URL at runtime from the backend's private binding.
+    if (process.env.ML_URL) {
+      const response = await fetch(new URL("/health", process.env.ML_URL), {
+        signal: AbortSignal.timeout(15000), cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`ML service health returned ${response.status}`);
+      const data = await response.json() as { status?: string; modelAvailable?: boolean };
+      if (data.status !== "ok" || data.modelAvailable !== true) {
+        throw new Error("Remote ML anomaly model unavailable");
+      }
+      this.ready = true;
+      this.stopped = false;
+      return;
+    }
     return new Promise((resolve, reject) => {
       console.log("[MLWorker] Spawning Python inference server...");
 
@@ -187,6 +201,27 @@ class MLWorker extends EventEmitter {
 
   /** Predict (async, sub-5ms once model is in RAM) */
   async predict(input: MLPredictionInput, timeoutMs = 5000): Promise<MLPredictionResult> {
+    if (process.env.ML_URL) {
+      const t0 = Date.now();
+      try {
+        if (!this.ready) await this.ensureStarted();
+        const response = await fetch(new URL("/predict", process.env.ML_URL), {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input), cache: "no-store",
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!response.ok) throw new Error(`ML inference HTTP ${response.status}`);
+        const result = await response.json() as MLPredictionResult;
+        if (result.status !== "success" || typeof result.isAnomaly !== "boolean") {
+          throw new Error("Invalid remote ML prediction");
+        }
+        return { ...result, latency_ms: Date.now() - t0 };
+      } catch (error: any) {
+        this.ready = false;
+        return { isAnomaly: false, score: 0, status: "error", latency_ms: Date.now() - t0,
+          message: error?.message ?? "ML service unreachable" };
+      }
+    }
     if (!this.ready || !this.process) {
       try {
         await this.ensureStarted();
@@ -224,11 +259,17 @@ class MLWorker extends EventEmitter {
    */
   getLifecycleState(): "ready" | "starting" | "unavailable" {
     if (this.ready) return "ready";
+    if (process.env.ML_URL) return this.startPromise ? "starting" : "unavailable";
     if (this.startPromise !== null || (this.process !== null && !this.stopped)) return "starting";
     return "unavailable";
   }
 
   stop(): void {
+    if (process.env.ML_URL) {
+      this.ready = false;
+      this.stopped = true;
+      return;
+    }
     if (this.process) {
       this.stopped = true; // exit handler must not auto-restart
       this.process.kill("SIGTERM");

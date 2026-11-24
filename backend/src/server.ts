@@ -139,13 +139,17 @@ app.listen(PORT, async () => {
   }
 
   // Step 2: Warm the species classifier
-  console.log("[Boot] Step 2/3 — Warming species classifier...");
-  const { speciesWorker } = await import("./lib/speciesWorker");
-  try {
-    await speciesWorker.start();
-  } catch (err: any) {
-    console.warn("[Boot] Species classifier failed to start:", err.message);
-    console.warn("[Boot] /api/species/classify will fall back to one-shot Python");
+  console.log("[Boot] Step 2/3 — Preparing species classifier...");
+  if (process.env.ML_URL) {
+    console.log("[Boot] Species classification delegated to the private ML service");
+  } else {
+    const { speciesWorker } = await import("./lib/speciesWorker");
+    try {
+      await speciesWorker.start();
+    } catch (err: any) {
+      console.warn("[Boot] Species classifier failed to start:", err.message);
+      console.warn("[Boot] /api/species/classify will fall back to one-shot Python");
+    }
   }
 
   // Step 3: Initialize Sensor Data Pipeline

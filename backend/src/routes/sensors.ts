@@ -203,6 +203,9 @@ router.post("/predict", requireAuth, validate(sensorPredictSchema), async (req, 
       oxygen: data.oxygen,
       turbidity: data.turbidity,
     });
+    if (result.status !== "success") {
+      return res.status(503).json({ error: "ML inference unavailable" });
+    }
     recordMlInferenceLatency(result.latency_ms);
 
     // If anomaly detected → fire drone dispatch via EventBus
