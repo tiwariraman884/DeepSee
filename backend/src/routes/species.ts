@@ -11,7 +11,9 @@ import { speciesClassifySchema } from "../lib/validation";
 
 const router = Router();
 
-const LABEL_MAP_PATH = path.join(process.cwd(), "..", "ml", "species_label_map.json");
+const LABEL_MAP_PATH = process.env.ML_URL
+  ? path.join(__dirname, "../data/species_label_map.json")
+  : path.join(process.cwd(), "..", "ml", "species_label_map.json");
 
 let _labelMap: any = null;
 function getLabelMap(): any {
@@ -91,6 +93,15 @@ router.post("/classify", requireAuth, validate(speciesClassifySchema), async (re
 });
 
 async function classifyImage(image_b64: string): Promise<any> {
+  if (process.env.ML_URL) {
+    const response = await fetch(new URL("/classify", process.env.ML_URL), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_b64 }), cache: "no-store",
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) throw new Error(`ML classification HTTP ${response.status}`);
+    return response.json();
+  }
   if (!speciesWorker.isReady) {
     try {
       await speciesWorker.start();

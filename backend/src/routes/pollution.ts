@@ -91,13 +91,27 @@ router.get("/:id", requireAuth, (req, res) => {
   }
 });
 
-router.post("/forecast", requireAuth, validate(pollutionForecastSchema), (req, res) => {
+router.post("/forecast", requireAuth, validate(pollutionForecastSchema), async (req, res) => {
   const { severity, trend, name } = req.body;
 
   const mlDir = path.join(process.cwd(), "..", "ml");
   const scriptPath = path.join(mlDir, "forecast_spread.py");
 
   const inputData = { severity, trend, name };
+
+  if (process.env.ML_URL) {
+    try {
+      const response = await fetch(new URL("/forecast", process.env.ML_URL), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(inputData), cache: "no-store",
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!response.ok) return res.status(502).json({ error: "ML forecast service unavailable" });
+      return res.json(await response.json());
+    } catch {
+      return res.status(502).json({ error: "ML forecast service unreachable" });
+    }
+  }
 
   execFile(getPythonBin(), [scriptPath, JSON.stringify(inputData)], { cwd: mlDir }, (error, stdout, stderr) => {
     if (error) {
