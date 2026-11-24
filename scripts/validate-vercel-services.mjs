@@ -37,7 +37,7 @@ assert.ok(!rewrites.some(x => x.destination?.service === "ml"));
 assert.ok(rewrites.findIndex(x => x.source === "/api/(.*)") < rewrites.length - 1);
 
 const middleware = fs.readFileSync("frontend/src/middleware.ts", "utf8");
-assert.match(middleware, /runtime:\\s*["']nodejs["']/,
+assert.match(middleware, /runtime:\s*["']nodejs["']/,
   "Vercel Services requires Node.js middleware, not the default Edge output");
 
 const config = fs.readFileSync("frontend/next.config.mjs", "utf8");
