@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
 
@@ -77,10 +77,26 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install ML HTTP dependencies
+        run: python -m pip install -r ml/requirements.txt
+
       - name: Check Python syntax
         run: |
+          python -m py_compile ml/main.py
+          python -m py_compile ml/test_http.py
           python -m py_compile ml/predict.py
           python -m py_compile ml/predict_server.py
           python -m py_compile ml/forecast_spread.py
           python -m py_compile ml/classify_species.py
           python -m py_compile ml/classify_species_server.py
+
+      - name: Test real ML HTTP adapter
+        run: python -m unittest discover -s ml -p 'test_http.py' -v
+
+  services-config:
+    name: Vercel Services — Config & Routing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate routing and service bindings
+        run: node scripts/validate-vercel-services.mjs
