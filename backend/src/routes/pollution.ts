@@ -6,6 +6,7 @@ import { getPythonBin } from "../lib/python";
 import { requireAuth } from "../lib/authMiddleware";
 import { validate } from "../lib/validate";
 import { pollutionForecastSchema } from "../lib/validation";
+import { mlServiceEnabled, mlServicePost } from "../lib/mlService";
 
 const router = Router();
 
@@ -91,13 +92,23 @@ router.get("/:id", requireAuth, (req, res) => {
   }
 });
 
-router.post("/forecast", requireAuth, validate(pollutionForecastSchema), (req, res) => {
+router.post("/forecast", requireAuth, validate(pollutionForecastSchema), async (req, res) => {
   const { severity, trend, name } = req.body;
 
   const mlDir = path.join(process.cwd(), "..", "ml");
   const scriptPath = path.join(mlDir, "forecast_spread.py");
 
   const inputData = { severity, trend, name };
+
+  if (mlServiceEnabled()) {
+    try {
+      const forecast = await mlServicePost<any>("/forecast", inputData, 20000);
+      return res.json(forecast);
+    } catch (err: any) {
+      console.warn("[ML Forecast] Service error:", err?.message);
+      return res.status(502).json({ error: "ML forecast service unavailable" });
+    }
+  }
 
   execFile(getPythonBin(), [scriptPath, JSON.stringify(inputData)], { cwd: mlDir }, (error, stdout, stderr) => {
     if (error) {

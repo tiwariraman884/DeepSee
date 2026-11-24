@@ -1,30 +1,10 @@
-# DeepSea Guardian — ML dependencies
-#
-# Install with:
-#   python -m pip install -r ml/requirements.txt
-#
-# For the CPU-only PyTorch build (recommended — no NVIDIA GPU required):
-#   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-
-# Core numerics
+# Lightweight Vercel HTTP inference runtime (ml/main.py).
+# For PyTorch training/model inference, install requirements-training.txt.
+fastapi>=0.115,<1
+pydantic>=2,<3
+uvicorn>=0.29
 numpy>=1.24
 pandas>=2.0
 scikit-learn>=1.3
-
-# HTTP service (ml/app.py — the `ml` service on Vercel, and local `python ml/app.py`)
-fastapi>=0.110
-uvicorn>=0.29
-
-# Image handling
 Pillow>=10.0
-
-# Model persistence
 joblib>=1.3
-
-# Species vision classifier (transfer learning).
-# CPU build is sufficient; the model trains and infers without a GPU.
-torch>=2.2
-torchvision>=0.17
-
-# Dataset download (ml/download_sea_animals.py, ml/download_sf_water.py)
-kagglehub>=0.3

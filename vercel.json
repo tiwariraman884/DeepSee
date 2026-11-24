@@ -1,39 +1,61 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
+    "frontend": {
+      "root": "frontend",
+      "framework": "nextjs",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "backend",
+          "format": "url",
+          "env": "BACKEND_URL"
+        }
+      ]
+    },
     "backend": {
       "root": "backend",
       "framework": "express",
       "entrypoint": "src/app.ts",
       "bindings": [
-        { "type": "service", "service": "ml", "format": "url", "env": "ML_SERVICE_URL" }
-      ]
-    },
-    "frontend": {
-      "root": "frontend",
-      "framework": "nextjs",
-      "bindings": [
-        { "type": "service", "service": "backend", "format": "url", "env": "BACKEND_URL" }
+        {
+          "type": "service",
+          "service": "ml",
+          "format": "url",
+          "env": "ML_URL"
+        }
       ]
     },
     "ml": {
       "root": "ml",
       "framework": "fastapi",
-      "entrypoint": "app.py"
+      "entrypoint": "main:app"
     }
   },
   "rewrites": [
     {
       "source": "/api/assistant",
-      "destination": { "service": "frontend" }
+      "destination": {
+        "service": "frontend"
+      }
+    },
+    {
+      "source": "/api/stack-health",
+      "destination": {
+        "service": "frontend"
+      }
     },
     {
       "source": "/api/(.*)",
-      "destination": { "service": "backend" }
+      "destination": {
+        "service": "backend"
+      }
     },
     {
       "source": "/(.*)",
-      "destination": { "service": "frontend" }
+      "destination": {
+        "service": "frontend"
+      }
     }
   ]
 }

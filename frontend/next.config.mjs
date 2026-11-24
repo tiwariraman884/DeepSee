@@ -1,25 +1,27 @@
 import withBundleAnalyzer from "@next/bundle-analyzer";
 
 /**
- * Backend origin for the /api proxy.
+ * Backend origin for the local Docker Compose proxy.
  *
  * Hardcoding http://localhost:5000 broke Docker Compose: inside the frontend
  * container "localhost" is the frontend itself, so every /api/* call failed
  * with ECONNREFUSED (seen in dev-frontend-err.log). Resolution order:
  *   1. BACKEND_URL          — server-side, set by compose to http://backend:5000
  *   2. NEXT_PUBLIC_API_URL  — existing public variable, still honoured
- *   3. null                 — no proxy (see below)
+ *   3. null                 — no proxy rule
  * Trailing slashes are stripped because the destination appends /api/:path*.
  *
- * Vercel services: the deployment's top-level rewrite sends every /api/* request
- * straight to the `backend` service (vercel.json), so no BACKEND_URL is set and
- * this app must NOT rewrite /api/* anywhere. Proxying here would loop (backend
- * origin unknown in a build) or bypass the service route.
+ * Vercel Services: the root vercel.json routes /api/* (and every page) before
+ * this app sees a request, and the top-level rewrites are the only public
+ * routing. So no proxy is added when VERCEL=1 — a rewrite here would sit in
+ * front of the service route and send the browser's same-origin /api/* calls
+ * to whatever BACKEND_URL happens to be (a binding, or localhost in a build).
+ * Local testing of the full stack is `vercel dev --local` from the repo root;
+ * plain `next dev` still proxies to BACKEND_URL for backend-only work.
  */
 function resolveBackendUrl() {
   const configured = process.env.BACKEND_URL?.trim() || process.env.NEXT_PUBLIC_API_URL?.trim();
-  const isVercelServices = process.env.VERCEL === "1";
-  if (isVercelServices && !configured) return null;
+  if (process.env.VERCEL === "1") return null;
   return (configured || "http://localhost:5000").replace(/\/+$/, "");
 }
 
@@ -42,8 +44,9 @@ const nextConfig = {
   devIndicators: {
     staticRoutesIndicator: false,
   },
+  // Public /api routing belongs to root Vercel Services rewrites.
+  // Use "vercel dev --local" from the repository root for local testing.
   async rewrites() {
-    // Vercel services: /api/* is routed to the backend service at the top level.
     if (!BACKEND_URL) return [];
     return [
       {

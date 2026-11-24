@@ -23,7 +23,7 @@ import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import path from "path";
 import { EventEmitter } from "events";
 import { getPythonBin, getMlDir } from "./python";
-import { mlServiceEnabled, mlServicePost } from "./mlService";
+import { mlServiceEnabled, mlServiceUrl, mlServicePost } from "./mlService";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface MLPredictionInput {
@@ -71,14 +71,20 @@ class MLWorker extends EventEmitter {
 
   /** Start the Python ML server process */
   async start(): Promise<void> {
-    // Remote ML service (Vercel): nothing to spawn — the HTTP binding replaces
-    // the child-process transport. Always "ready" so predict() takes that path.
+    // Vercel injects ML_URL at runtime from the backend's private binding.
     if (mlServiceEnabled()) {
+      const response = await fetch(new URL("/health", `${mlServiceUrl()}/`), {
+        signal: AbortSignal.timeout(15000), cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`ML service health returned ${response.status}`);
+      const data = await response.json() as { status?: string; modelAvailable?: boolean };
+      if (data.status !== "ok" || data.modelAvailable !== true) {
+        throw new Error("Remote ML anomaly model unavailable");
+      }
       this.ready = true;
-      console.log("[MLWorker] Using remote ML service over HTTP (ML_SERVICE_URL)");
+      this.stopped = false;
       return;
     }
-
     return new Promise((resolve, reject) => {
       console.log("[MLWorker] Spawning Python inference server...");
 
@@ -199,25 +205,24 @@ class MLWorker extends EventEmitter {
     if (mlServiceEnabled()) {
       const t0 = Date.now();
       try {
+        if (!this.ready) await this.ensureStarted();
         // A cold ML instance pays the model-load cost, so allow more time than
         // the in-process transport needs.
-        const result = await mlServicePost<Partial<MLPredictionResult> & Pick<MLPredictionResult, "isAnomaly" | "score" | "status">>(
-          "predict",
+        const result = await mlServicePost<MLPredictionResult>(
+          "/predict",
           input,
           Math.max(timeoutMs, 30000)
         );
-        return { ...result, latency_ms: result.latency_ms ?? Date.now() - t0 };
-      } catch (err: any) {
-        return {
-          isAnomaly: false,
-          score: 0,
-          status: "error",
-          latency_ms: Date.now() - t0,
-          message: err.message,
-        };
+        if (result.status !== "success" || typeof result.isAnomaly !== "boolean") {
+          throw new Error("Invalid remote ML prediction");
+        }
+        return { ...result, latency_ms: Date.now() - t0 };
+      } catch (error: any) {
+        this.ready = false;
+        return { isAnomaly: false, score: 0, status: "error", latency_ms: Date.now() - t0,
+          message: error?.message ?? "ML service unreachable" };
       }
     }
-
     if (!this.ready || !this.process) {
       try {
         await this.ensureStarted();
@@ -255,11 +260,17 @@ class MLWorker extends EventEmitter {
    */
   getLifecycleState(): "ready" | "starting" | "unavailable" {
     if (this.ready) return "ready";
+    if (mlServiceEnabled()) return this.startPromise ? "starting" : "unavailable";
     if (this.startPromise !== null || (this.process !== null && !this.stopped)) return "starting";
     return "unavailable";
   }
 
   stop(): void {
+    if (mlServiceEnabled()) {
+      this.ready = false;
+      this.stopped = true;
+      return;
+    }
     if (this.process) {
       this.stopped = true; // exit handler must not auto-restart
       this.process.kill("SIGTERM");

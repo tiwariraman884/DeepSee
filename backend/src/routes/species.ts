@@ -8,10 +8,13 @@ import { speciesWorker } from "../lib/speciesWorker";
 import { requireAuth } from "../lib/authMiddleware";
 import { validate } from "../lib/validate";
 import { speciesClassifySchema } from "../lib/validation";
+import { mlServiceEnabled, mlServicePost } from "../lib/mlService";
 
 const router = Router();
 
-const LABEL_MAP_PATH = path.join(process.cwd(), "..", "ml", "species_label_map.json");
+const LABEL_MAP_PATH = mlServiceEnabled()
+  ? path.join(__dirname, "../data/species_label_map.json")
+  : path.join(process.cwd(), "..", "ml", "species_label_map.json");
 
 let _labelMap: any = null;
 function getLabelMap(): any {
@@ -91,6 +94,9 @@ router.post("/classify", requireAuth, validate(speciesClassifySchema), async (re
 });
 
 async function classifyImage(image_b64: string): Promise<any> {
+  if (mlServiceEnabled()) {
+    return mlServicePost("/classify", { image_b64 }, 60000);
+  }
   if (!speciesWorker.isReady) {
     try {
       await speciesWorker.start();

@@ -38,7 +38,7 @@ class SpeciesClassifierWorker {
     // Remote ML service (Vercel): no child process exists to hand-shake with.
     // "Ready" here means "configured"; the model warms on its first request.
     if (mlServiceEnabled()) {
-      console.log("[SpeciesWorker] Using remote ML service over HTTP (ML_SERVICE_URL)");
+      console.log("[SpeciesWorker] Delegating classification to the ML service over HTTP");
       return Promise.resolve();
     }
 
