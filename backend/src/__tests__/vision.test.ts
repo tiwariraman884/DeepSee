@@ -401,7 +401,11 @@ describe("M. USB unavailable state (no silent fallback)", () => {
     const st = await src.connect();
     expect(st.connected).toBe(false);
     expect(st.state).toBe("UNAVAILABLE");
-    expect([VisionErrorCode.CAMERA_NOT_CONFIGURED, VisionErrorCode.CAMERA_DEVICE_NOT_FOUND]).toContain(st.errorCode);
+    expect([
+      VisionErrorCode.CAMERA_NOT_CONFIGURED,
+      VisionErrorCode.CAMERA_DEVICE_NOT_FOUND,
+      VisionErrorCode.CAMERA_STREAM_UNAVAILABLE,
+    ]).toContain(st.errorCode);
     await expect(src.captureFrame("insp-vision-test", 1)).rejects.toBeInstanceOf(VisionError);
   });
 

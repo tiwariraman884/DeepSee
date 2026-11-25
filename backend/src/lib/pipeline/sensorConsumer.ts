@@ -123,8 +123,12 @@ export class SensorConsumer {
               timestamp: reading.timestamp,
             };
 
-            eventBus.publish<AnomalyEvent>(TOPICS.ML_ANOMALY, anomalyEvent);
+            // Persist the alert before dispatching the anomaly event.
+            // DroneDispatcher handles ML_ANOMALY synchronously and looks up
+            // this alert to link its inspection. Publishing first raced the
+            // INSERT, creating inspection records with a null alert_id.
             this.persistAlert(reading, mlResult);
+            eventBus.publish<AnomalyEvent>(TOPICS.ML_ANOMALY, anomalyEvent);
             this.broadcastAnomaly(reading, mlResult);
 
             options.onAnomaly?.(anomalyEvent);

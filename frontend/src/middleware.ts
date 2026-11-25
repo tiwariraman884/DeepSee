@@ -29,8 +29,8 @@ const PUBLIC_PATHS = [
   "/status",
 ];
 
-// Lightweight token verification in Edge runtime (no Node crypto module import needed
-// since Next.js middleware runs in the Edge runtime which has Web Crypto API).
+// Lightweight token verification for Node.js middleware. Keep the early redirect
+// behavior while remaining compatible with Vercel Services (no Edge Functions).
 // We do basic presence + expiry check here; full HMAC check is done in API routes.
 function isValidToken(token: string): boolean {
   try {
@@ -83,6 +83,9 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
+  // Next.js 15.5+ supports the stable Node.js Middleware runtime.
+  // Vercel Services rejects Edge Function outputs, so this must be Node.js.
+  runtime: "nodejs",
   // Static assets under /public must bypass auth. Video files are listed
   // explicitly: without them /videos/*.webm was treated as a protected page
   // and 307-redirected to /login, so the landing-page hero video never loaded.

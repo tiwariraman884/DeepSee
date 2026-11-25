@@ -35,6 +35,22 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Setup Python for backend integration tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python ML dependencies for backend tests
+        run: python -m pip install -r ../ml/requirements.txt
+
+      - name: Prepare isolated CI demo database
+        env:
+          ADMIN_PASSWORD: ci-only-admin-password
+        run: |
+          cd ../frontend
+          npm ci
+          npm run seed
+
       - name: Typecheck
         run: npx tsc --noEmit
 
